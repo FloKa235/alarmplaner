@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { DbScenario, DbScenarioPhase, DbAlertContact, ScenarioHandbook } from '@/types/database'
+import type { DbScenario, DbScenarioPhase, ScenarioHandbook, ScenarioHandbookV2 } from '@/types/database'
+import { isHandbookV2 } from '@/types/database'
 
 // Brand Colors
 const PRIMARY = [37, 99, 235] as const     // primary-600 (#2563EB)
@@ -10,15 +11,25 @@ const TEXT_LIGHT = [156, 163, 175] as const // gray-400
 const BG_LIGHT = [249, 250, 251] as const  // gray-50
 const WHITE = [255, 255, 255] as const
 
+// Kapitel-Farben (RGB) – passend zum Frontend
+const KAPITEL_FARBEN: Record<number, [number, number, number]> = {
+  1: [220, 38, 38],    // red-600
+  2: [37, 99, 235],    // blue-600
+  3: [22, 163, 74],    // green-600
+  4: [217, 119, 6],    // amber-600
+  5: [234, 88, 12],    // orange-600
+  6: [147, 51, 234],   // purple-600
+  7: [13, 148, 136],   // teal-600
+}
+
 /**
  * Generiert ein professionelles PDF-Krisenhandbuch für ein Szenario.
- * Inkl. Branding, Metadaten, Beschreibung, Handlungsplan und optionale Handbook-Sektionen.
+ * Unterstützt V2-Kapitelstruktur (bevorzugt) und V1-Fallback.
  */
 export function exportScenarioPDF(
   scenario: DbScenario,
   phases: DbScenarioPhase[],
   districtName?: string,
-  contacts?: DbAlertContact[]
 ) {
   const doc = new jsPDF('p', 'mm', 'a4')
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -55,14 +66,15 @@ export function exportScenarioPDF(
     }
   }
 
-  const addSectionHeader = (title: string) => {
+  const addSectionHeader = (title: string, color?: readonly [number, number, number]) => {
     checkPageBreak(20)
+    const c = color || PRIMARY
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(15)
-    doc.setTextColor(...PRIMARY)
+    doc.setTextColor(c[0], c[1], c[2])
     doc.text(title, margin, y)
     y += 2
-    doc.setDrawColor(...PRIMARY)
+    doc.setDrawColor(c[0], c[1], c[2])
     doc.setLineWidth(0.8)
     doc.line(margin, y, margin + 50, y)
     y += 10
@@ -100,6 +112,25 @@ export function exportScenarioPDF(
     checkPageBreak(height + 5)
     doc.text(lines, margin, y)
     y += height + 6
+  }
+
+  // Mehrzeiligen Text umbrechen (Markdown-ähnliche Absätze)
+  const addMultilineParagraph = (text: string) => {
+    const paragraphs = text.split(/\n{2,}/)
+    paragraphs.forEach(para => {
+      const trimmed = para.trim()
+      if (!trimmed) return
+
+      // Einfache Bullet-Erkennung
+      if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
+        const bulletItems = trimmed.split('\n').map(l => l.replace(/^[-•]\s*/, '').trim()).filter(Boolean)
+        addBulletList(bulletItems)
+        y += 2
+      } else {
+        // Regulärer Absatz
+        addParagraph(trimmed)
+      }
+    })
   }
 
   // ─── Header ──────────────────────────────────────────
@@ -269,9 +300,205 @@ export function exportScenarioPDF(
     })
   }
 
-  // ─── Handbook Sections (wenn vorhanden) ──────────────
-  const handbook = scenario.handbook as ScenarioHandbook | null
-  if (handbook) {
+  // ─── Krisenhandbuch ──────────────────────────────────
+  const rawHandbook = scenario.handbook as ScenarioHandbook | ScenarioHandbookV2 | null
+  if (rawHandbook) {
+    if (isHandbookV2(rawHandbook)) {
+      // ═══ V2: Kapitel-basiertes Krisenhandbuch ═══
+      renderV2Handbook(rawHandbook)
+    } else {
+      // ═══ V1: Legacy flat sections (Fallback) ═══
+      renderV1Handbook(rawHandbook)
+    }
+  }
+
+  // ─── Footer on all pages ─────────────────────────────
+  addFooter()
+
+  // ─── Save ────────────────────────────────────────────
+  const sanitizedTitle = scenario.title
+    .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, '')
+    .replace(/\s+/g, '_')
+    .substring(0, 50)
+  const filename = `Krisenhandbuch_${sanitizedTitle}.pdf`
+  doc.save(filename)
+
+  // ═══════════════════════════════════════════════════════
+  // V2 Kapitel-basiertes Rendering
+  // ═══════════════════════════════════════════════════════
+  function renderV2Handbook(handbook: ScenarioHandbookV2) {
+    // Titelseite für Krisenhandbuch
+    doc.addPage()
+    y = 40
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(22)
+    doc.setTextColor(...PRIMARY)
+    doc.text('KRISENHANDBUCH', margin, y)
+    y += 10
+
+    doc.setDrawColor(...PRIMARY)
+    doc.setLineWidth(1)
+    doc.line(margin, y, pageWidth - margin, y)
+    y += 8
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(...TEXT_MED)
+    doc.text(`${handbook.kapitel.length} Kapitel`, margin, y)
+    y += 5
+
+    // Checklisten-Statistik
+    const allItems = handbook.kapitel.flatMap(k => k.checkliste)
+    const totalDone = allItems.filter(i => i.status === 'done').length
+    const totalSkipped = allItems.filter(i => i.status === 'skipped').length
+    const totalOpen = allItems.filter(i => i.status === 'open').length
+    const totalPercent = allItems.length > 0
+      ? Math.round(((totalDone + totalSkipped) / allItems.length) * 100)
+      : 0
+
+    doc.text(
+      `Checklisten-Fortschritt: ${totalDone + totalSkipped}/${allItems.length} erledigt (${totalPercent}%) – ${totalOpen} offen`,
+      margin, y
+    )
+    y += 12
+
+    // Inhaltsverzeichnis
+    addSubHeader('Inhaltsverzeichnis')
+    handbook.kapitel.forEach(kap => {
+      checkPageBreak(8)
+      const kapColor = KAPITEL_FARBEN[kap.nummer] || [107, 114, 128]
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(kapColor[0], kapColor[1], kapColor[2])
+      doc.text(`${kap.nummer}.`, margin, y)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(...TEXT_DARK)
+      doc.text(kap.titel, margin + 10, y)
+
+      // Checklisten-Fortschritt pro Kapitel
+      const kapDone = kap.checkliste.filter(i => i.status === 'done' || i.status === 'skipped').length
+      if (kap.checkliste.length > 0) {
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(8)
+        doc.setTextColor(...TEXT_LIGHT)
+        doc.text(`${kapDone}/${kap.checkliste.length}`, pageWidth - margin, y, { align: 'right' })
+      }
+
+      y += 6
+    })
+
+    y += 6
+
+    // Kapitel rendern
+    handbook.kapitel.forEach(kap => {
+      const kapColor = KAPITEL_FARBEN[kap.nummer] || [107, 114, 128]
+      const kapColorTuple = kapColor as unknown as readonly [number, number, number]
+
+      // Neues Kapitel auf neuer Seite
+      doc.addPage()
+      y = 20
+
+      // Kapitel-Header mit farbigem Akzent
+      doc.setFillColor(kapColor[0], kapColor[1], kapColor[2])
+      doc.rect(margin, y, 4, 12, 'F')
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10)
+      doc.setTextColor(kapColor[0], kapColor[1], kapColor[2])
+      doc.text(`Kapitel ${kap.nummer}`, margin + 8, y + 4)
+
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(16)
+      doc.setTextColor(...TEXT_DARK)
+      doc.text(kap.titel, margin + 8, y + 12)
+      y += 20
+
+      // Trennlinie
+      doc.setDrawColor(kapColor[0], kapColor[1], kapColor[2])
+      doc.setLineWidth(0.5)
+      doc.line(margin, y, pageWidth - margin, y)
+      y += 10
+
+      // Fließtext (Inhalt)
+      if (kap.inhalt && kap.inhalt.trim().length > 0) {
+        addMultilineParagraph(kap.inhalt)
+        y += 4
+      } else {
+        doc.setFont('helvetica', 'italic')
+        doc.setFontSize(9)
+        doc.setTextColor(...TEXT_LIGHT)
+        doc.text('Noch kein Inhalt verfasst.', margin, y)
+        y += 8
+      }
+
+      // Checkliste
+      if (kap.checkliste.length > 0) {
+        checkPageBreak(20)
+        addSubHeader('Checkliste')
+
+        const checkData = kap.checkliste.map((item, idx) => {
+          const statusIcon = item.status === 'done' ? '✓' :
+            item.status === 'skipped' ? '–' : '○'
+          const statusText = item.status === 'done' ? 'Erledigt' :
+            item.status === 'skipped' ? 'Übersprungen' : 'Offen'
+          return [
+            `${idx + 1}`,
+            statusIcon,
+            item.text,
+            statusText,
+            item.notiz || '–',
+          ]
+        })
+
+        autoTable(doc, {
+          startY: y,
+          head: [['Nr.', '', 'Aufgabe', 'Status', 'Notiz']],
+          body: checkData,
+          margin: { left: margin, right: margin },
+          styles: {
+            fontSize: 8, cellPadding: 3,
+            textColor: TEXT_DARK as [number, number, number],
+            lineColor: [229, 231, 235], lineWidth: 0.2,
+            overflow: 'linebreak',
+          },
+          headStyles: {
+            fillColor: kapColorTuple as [number, number, number],
+            textColor: WHITE as [number, number, number],
+            fontStyle: 'bold', fontSize: 8,
+          },
+          alternateRowStyles: { fillColor: BG_LIGHT as [number, number, number] },
+          columnStyles: {
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 8, halign: 'center', fontStyle: 'bold' },
+            2: { cellWidth: 55 },
+            3: { cellWidth: 22, halign: 'center' },
+          },
+          theme: 'grid',
+          didParseCell: (data) => {
+            // Farbige Status-Zelle
+            if (data.section === 'body' && data.column.index === 3) {
+              const val = data.cell.raw as string
+              if (val === 'Erledigt') {
+                data.cell.styles.textColor = [22, 163, 74] // green-600
+                data.cell.styles.fontStyle = 'bold'
+              } else if (val === 'Übersprungen') {
+                data.cell.styles.textColor = [107, 114, 128] // gray-500
+              }
+            }
+          },
+        })
+
+        // @ts-expect-error jspdf-autotable extends doc with lastAutoTable
+        y = doc.lastAutoTable.finalY + 10
+      }
+    })
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // V1 Legacy Rendering (Fallback für alte Daten)
+  // ═══════════════════════════════════════════════════════
+  function renderV1Handbook(handbook: ScenarioHandbook) {
     // === Risikobewertung ===
     addSectionHeader('Risikobewertung')
 
@@ -387,42 +614,25 @@ export function exportScenarioPDF(
     if (handbook.verantwortlichkeiten?.length) {
       addSectionHeader('Verantwortlichkeiten (Krisenstab)')
 
-      const verantData = handbook.verantwortlichkeiten.map(v => {
-        const matchedContacts = v.kontaktgruppe && contacts
-          ? contacts.filter(c => c.groups?.includes(v.kontaktgruppe!)).map(c => c.name).join(', ')
-          : ''
-        return [
-          v.funktion,
-          (v.aufgaben || []).join('\n'),
-          v.kontaktgruppe || '–',
-          matchedContacts || '–',
-        ]
-      })
+      const verantData = handbook.verantwortlichkeiten.map(v => [
+        v.funktion,
+        (v.aufgaben || []).join('\n'),
+        v.kontaktgruppe || '–',
+      ])
 
       autoTable(doc, {
         startY: y,
-        head: [['Funktion', 'Aufgaben', 'Kontaktgruppe', 'Kontakte']],
+        head: [['Funktion', 'Aufgaben', 'Kontaktgruppe']],
         body: verantData,
         margin: { left: margin, right: margin },
         styles: { fontSize: 8, cellPadding: 3.5, textColor: TEXT_DARK as [number, number, number], lineColor: [229, 231, 235], lineWidth: 0.3, overflow: 'linebreak' },
         headStyles: { fillColor: PRIMARY as [number, number, number], textColor: WHITE as [number, number, number], fontStyle: 'bold', fontSize: 8.5 },
         alternateRowStyles: { fillColor: BG_LIGHT as [number, number, number] },
-        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 32 }, 2: { cellWidth: 28 }, 3: { cellWidth: 30 } },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 35 }, 2: { cellWidth: 30 } },
         theme: 'grid',
       })
       // @ts-expect-error jspdf-autotable extends doc with lastAutoTable
       y = doc.lastAutoTable.finalY + 10
     }
   }
-
-  // ─── Footer on all pages ─────────────────────────────
-  addFooter()
-
-  // ─── Save ────────────────────────────────────────────
-  const sanitizedTitle = scenario.title
-    .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, '')
-    .replace(/\s+/g, '_')
-    .substring(0, 50)
-  const filename = `Krisenhandbuch_${sanitizedTitle}.pdf`
-  doc.save(filename)
 }

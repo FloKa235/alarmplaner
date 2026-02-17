@@ -1,4 +1,9 @@
-import { Flame, Plus, Sparkles, Search, Loader2, ChevronDown, Lock, LayoutGrid, List, Calendar, ClipboardList } from 'lucide-react'
+import {
+  Flame, Plus, Sparkles, Search, Loader2, ChevronDown, LayoutGrid, List, Calendar, ClipboardList,
+  CloudRain, Wind, Thermometer, Snowflake, TreePine, Crosshair, Biohazard, Wifi, Swords,
+  Bug, Wrench, Zap, Bomb,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PageHeader from '@/components/ui/PageHeader'
@@ -10,21 +15,23 @@ import { supabase } from '@/lib/supabase'
 import type { DbScenario, DbScenarioPhase } from '@/types/database'
 
 const scenarioTypes = [
-  'Hochwasser',
+  'Starkregen',
   'Sturm',
+  'Hitzewelle',
+  'Kältewelle',
   'Waldbrand',
-  'Stromausfall',
-  'Extremhitze',
-  'Pandemie',
+  'Amoklauf',
   'CBRN',
   'Cyberangriff',
-  'Sabotage',
   'Krieg',
+  'Pandemie',
+  'Sabotage',
+  'Stromausfall',
   'Terroranschlag',
 ]
 
 // Naturkatastrophen vs Bedrohungen
-const NATURE_TYPES = ['Hochwasser', 'Sturm', 'Waldbrand', 'Extremhitze']
+const NATURE_TYPES = ['Starkregen', 'Sturm', 'Hitzewelle', 'Kältewelle', 'Waldbrand', 'Hochwasser', 'Extremhitze']
 function isNatureType(type: string): boolean {
   return NATURE_TYPES.some(t => type.toLowerCase().includes(t.toLowerCase()))
 }
@@ -39,6 +46,34 @@ function getSeverityLabel(s: number) {
   if (s >= 70) return 'Kritisch'
   if (s >= 40) return 'Mittel'
   return 'Gering'
+}
+
+// ─── Szenario-Icons ─────────────────────────────────
+
+const SCENARIO_ICONS: Record<string, LucideIcon> = {
+  Starkregen: CloudRain,
+  Sturm: Wind,
+  Hitzewelle: Thermometer,
+  Kältewelle: Snowflake,
+  Waldbrand: TreePine,
+  Amoklauf: Crosshair,
+  CBRN: Biohazard,
+  Cyberangriff: Wifi,
+  Krieg: Swords,
+  Pandemie: Bug,
+  Sabotage: Wrench,
+  Stromausfall: Zap,
+  Terroranschlag: Bomb,
+}
+
+function getScenarioIcon(type: string): LucideIcon {
+  return SCENARIO_ICONS[type] || Flame
+}
+
+function getSeverityIconColors(severity: number) {
+  if (severity >= 70) return { bg: 'bg-red-100', text: 'text-red-600' }
+  if (severity >= 40) return { bg: 'bg-amber-100', text: 'text-amber-600' }
+  return { bg: 'bg-green-100', text: 'text-green-600' }
 }
 
 export default function SzenarienPage() {
@@ -62,7 +97,7 @@ export default function SzenarienPage() {
   const [showModal, setShowModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
-  const emptyForm = { title: '', type: 'Hochwasser', severity: 50, description: '', affected_population: '' }
+  const emptyForm = { title: '', type: 'Starkregen', severity: 50, description: '', affected_population: '' }
   const [form, setForm] = useState(emptyForm)
 
   // Delete
@@ -132,6 +167,9 @@ export default function SzenarienPage() {
     if (filterType === 'natur') result = result.filter(s => isNatureType(s.type))
     else if (filterType === 'bedrohung') result = result.filter(s => !isNatureType(s.type))
     else if (filterType !== 'all') result = result.filter(s => s.type === filterType)
+
+    // Sortierung: Höchste Severity zuerst
+    result.sort((a, b) => b.severity - a.severity)
 
     return result
   }, [scenarios, searchQuery, filterSeverity, filterType])
@@ -257,7 +295,7 @@ export default function SzenarienPage() {
       <PageHeader
         title="KI-Krisenszenarien"
         description="Automatisch generierte Szenarien mit Handlungsplänen. Editierbar und erweiterbar."
-        badge="Säule 2"
+
         actions={
           <div className="flex gap-2">
             <button
@@ -439,24 +477,20 @@ export default function SzenarienPage() {
         <div className="space-y-3">
           {filtered.map((scenario) => {
             const ps = phaseStats[scenario.id]
+            const ScenarioIcon = getScenarioIcon(scenario.type)
+            const iconColors = getSeverityIconColors(scenario.severity)
             return (
               <div
                 key={scenario.id}
                 className="flex items-center gap-4 rounded-2xl border border-border bg-white p-6 transition-shadow hover:shadow-md"
               >
                 <Link to={`/pro/szenarien/${scenario.id}`} className="flex flex-1 items-center gap-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-500">
-                    <Flame className="h-6 w-6" />
+                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
+                    <ScenarioIcon className="h-6 w-6" />
                   </div>
                   <div className="flex-1 overflow-hidden">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-text-primary">{scenario.title}</h3>
-                      {scenario.is_default && (
-                        <Badge variant="warning">
-                          <Lock className="mr-1 h-3 w-3" />
-                          Pflicht
-                        </Badge>
-                      )}
                       {scenario.is_ai_generated && (
                         <Badge variant="info">
                           <Sparkles className="mr-1 h-3 w-3" />
@@ -482,7 +516,7 @@ export default function SzenarienPage() {
                 </Link>
                 <RowActions
                   onEdit={() => openEdit(scenario)}
-                  onDelete={scenario.is_default ? undefined : () => setDeleteTarget(scenario)}
+                  onDelete={() => setDeleteTarget(scenario)}
                 />
               </div>
             )
@@ -493,6 +527,8 @@ export default function SzenarienPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((scenario) => {
             const ps = phaseStats[scenario.id]
+            const ScenarioIcon = getScenarioIcon(scenario.type)
+            const iconColors = getSeverityIconColors(scenario.severity)
             return (
               <div
                 key={scenario.id}
@@ -502,15 +538,15 @@ export default function SzenarienPage() {
                 <div className="absolute right-3 top-3 opacity-0 transition-opacity group-hover:opacity-100">
                   <RowActions
                     onEdit={() => openEdit(scenario)}
-                    onDelete={scenario.is_default ? undefined : () => setDeleteTarget(scenario)}
+                    onDelete={() => setDeleteTarget(scenario)}
                   />
                 </div>
 
                 <Link to={`/pro/szenarien/${scenario.id}`} className="block">
                   {/* Icon + Titel */}
                   <div className="mb-3 flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent-500/10 text-accent-500">
-                      <Flame className="h-5 w-5" />
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
+                      <ScenarioIcon className="h-5 w-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-text-primary leading-snug line-clamp-1">{scenario.title}</h3>
@@ -518,12 +554,6 @@ export default function SzenarienPage() {
                         <Badge variant={getSeverityVariant(scenario.severity)}>
                           {getSeverityLabel(scenario.severity)}
                         </Badge>
-                        {scenario.is_default && (
-                          <Badge variant="warning">
-                            <Lock className="mr-0.5 h-2.5 w-2.5" />
-                            Pflicht
-                          </Badge>
-                        )}
                         {scenario.is_ai_generated && (
                           <Badge variant="info">
                             <Sparkles className="mr-0.5 h-2.5 w-2.5" />

@@ -2,43 +2,16 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getAuthenticatedUser, getServiceClient } from '../_shared/auth.ts'
 import { callLangdock } from '../_shared/langdock.ts'
 
-// ─── Response-Typ von der KI ──────────────────────────
-interface AIHandbookResponse {
-  risikobewertung: {
-    bedrohungsanalyse: string
-    eintrittswahrscheinlichkeit: string
-    schadensausmass: string
-    betroffene_sektoren: string[]
-    risikoeinschaetzung: string
-  }
-  praevention: {
-    vorbereitung: string[]
-    fruehwarnung: string[]
-    schulungen: string[]
-    materialvorhaltung: string[]
-  }
-  kommunikationsplan: {
-    intern: { sofort: string[]; laufend: string[] }
-    extern: { bevoelkerung: string[]; medien: string[]; behoerden: string[] }
-    kanaele: string[]
-    sprachregelungen: string[]
-  }
-  wennDannSzenarien: Array<{
-    trigger: string
-    massnahmen: string[]
-    eskalation: string
-  }>
-  verantwortlichkeiten: Array<{
-    funktion: string
-    aufgaben: string[]
-    kontaktgruppe?: string
-  }>
-  inventar: Array<{
-    kategorie: string
-    empfohlene_menge: number
-    einheit: string
-    begruendung: string
-  }>
+// ─── V2 Response-Typ von der KI ─────────────────────
+interface AIKapitelResponse {
+  nummer: number
+  titel: string
+  inhalt: string
+  checkliste: Array<{ text: string; notiz: string }>
+}
+
+interface AIHandbookResponseV2 {
+  kapitel: AIKapitelResponse[]
   phasen: Array<{
     name: string
     dauer: string
@@ -69,7 +42,7 @@ function buildSystemPrompt(
   documentText?: string | null
 ): string {
   const gemeindenList = municipalities
-    .slice(0, 30) // Limit um Token zu sparen
+    .slice(0, 30)
     .map(m => `- ${m.name}: ${m.population} Einw., Risiko: ${m.risk_level || 'k.A.'} (${m.risk_score || 0}/100)`)
     .join('\n')
 
@@ -78,7 +51,6 @@ function buildSystemPrompt(
     .map(k => `- ${k.name} (${k.category}, Sektor: ${k.sector || 'k.A.'}), Risiko: ${k.risk_exposure || 'k.A.'}`)
     .join('\n')
 
-  // Sektoren aggregieren
   const sektorCounts: Record<string, number> = {}
   kritisSites.forEach(k => {
     const s = k.sector || 'sonstige'
@@ -103,18 +75,15 @@ function buildSystemPrompt(
     })
     .join('\n\n')
 
-  // Kontakt-Gruppen extrahieren
   const allGroups = new Set<string>()
   contacts.forEach(c => (c.groups || []).forEach((g: string) => allGroups.add(g)))
   const kontaktGruppen = [...allGroups].join(', ') || 'Keine Kontaktgruppen definiert'
 
-  // Inventar-Liste
   const inventarList = inventoryItems
     .slice(0, 30)
     .map(i => `- ${i.category}: Ist ${i.current_quantity} / Soll ${i.target_quantity} ${i.unit}${i.location ? ` (${i.location})` : ''}`)
     .join('\n')
 
-  // Bestehender Handlungsplan (aus hochgeladenem Dokument)
   let documentSection = ''
   if (documentText) {
     documentSection = `
@@ -172,203 +141,96 @@ ${inventarList || '- Kein Inventar vorhanden'}
 ${documentSection}
 ## Anweisungen
 
-Erstelle ein vollständiges Krisenmanagement-Handbuch mit folgenden Abschnitten:
+Erstelle ein vollständiges Krisenmanagement-Handbuch in **Kapitel-Struktur**. Jedes Kapitel hat:
+- **inhalt**: Ausführlicher Fließtext (mehrzeilig, mit Markdown: ### für Überschriften, - für Listen, **fett** für Hervorhebungen)
+- **checkliste**: Konkrete abhakbare Aufgaben/Maßnahmen zu diesem Kapitel
 
-### 1. Risikobewertung
-- Detaillierte Bedrohungsanalyse (3-5 Sätze, spezifisch für diesen Landkreis)
-- Eintrittswahrscheinlichkeit: genau eines von "niedrig", "mittel", "hoch", "sehr_hoch"
-- Schadensausmaß: genau eines von "gering", "mittel", "erheblich", "katastrophal"
-- Betroffene KRITIS-Sektoren (BBK-Sektor-Keys: energie, wasser, ernaehrung, gesundheit, transport, it_telekom, finanz, staat, medien, wasserbau, militaer)
-- Zusammenfassende Risikoeinschätzung (2-3 Sätze)
+### Kapitel 1: Risikobewertung & Gefahrenanalyse
+**Inhalt** (Fließtext):
+- Ausführliche Bedrohungsanalyse (5-8 Sätze, spezifisch für diesen Landkreis)
+- Zeile "Eintrittswahrscheinlichkeit: <Niedrig|Mittel|Hoch|Sehr hoch>"
+- Zeile "Schadensausmaß: <Gering|Mittel|Erheblich|Katastrophal>"
+- Zusammenfassende Risikoeinschätzung (3-5 Sätze)
+- Zeile "Betroffene KRITIS-Sektoren: <komma-separierte Liste>"
+**Checkliste** (3-5 Items): Aufgaben zur Risikobewertung
 
-### 2. Prävention
-- Vorbereitungsmaßnahmen (5-8 konkrete Punkte)
-- Frühwarnmaßnahmen (3-5 konkrete Punkte)
-- Schulungen/Übungen (3-5 konkrete Punkte)
-- Materialvorhaltung (3-5 konkrete Punkte)
+### Kapitel 2: Handlungsplan & Einsatzphasen
+**Inhalt** (Fließtext):
+- Pro Phase einen ### Header mit Name und Dauer
+- Darunter die Aufgaben als - Bullet-Points
+- 4-6 zeitlich geordnete Phasen: Sofortmaßnahmen → Erstreaktion → Krisenbewältigung → Stabilisierung → Nachsorge
+**Checkliste** (8-15 Items): Die wichtigsten Aufgaben aus allen Phasen
 
-### 3. Kommunikationsplan
-- Interne Kommunikation: Sofort-Meldungen (3-5) + laufende Kommunikation (3-5)
-- Externe Kommunikation: Bevölkerung (3-5), Medien (2-4), Behörden (2-4)
-- Kommunikationskanäle (z.B. NINA, Lautsprecherdurchsagen, Social Media, Website)
-- Sprachregelungen (3-5 vorformulierte Kernaussagen)
+### Kapitel 3: Krisenstab & Verantwortlichkeiten
+**Inhalt** (Fließtext):
+- Pro Stabsfunktion (S1–S6) einen ### Header
+- Kontaktgruppe wenn passend (aus: ${kontaktGruppen})
+- 4-6 konkrete Aufgaben als - Bullets pro Funktion
+- S1 Personal, S2 Lage, S3 Einsatz, S4 Versorgung, S5 Presse/Medien, S6 IT/Kommunikation
+**Checkliste** (10-18 Items): Wichtigste Aufgaben aller S1-S6 mit [S1]–[S6] Prefix
 
-### 4. Wenn-Dann-Szenarien
-- 4-6 konkrete Trigger-Aktion-Paare mit Eskalationsstufe
-- Jeder Trigger: klare Bedingung
-- Jede Aktion: 2-4 konkrete Maßnahmen
-- Eskalation: Was passiert, wenn die Maßnahmen nicht greifen
+### Kapitel 4: Krisenkommunikation
+**Inhalt** (Fließtext):
+- ### Interne Kommunikation – Sofortmeldungen (3-5 Items)
+- ### Interne Kommunikation – Laufend (3-5 Items)
+- ### Externe Kommunikation – Bevölkerung (3-5 Items)
+- ### Externe Kommunikation – Medien (2-4 Items)
+- ### Externe Kommunikation – Behörden (2-4 Items)
+- ### Kommunikationskanäle (z.B. NINA, Lautsprecher, Social Media, Website)
+- ### Sprachregelungen (3-5 vorformulierte Kernaussagen als „Zitate")
+**Checkliste** (8-12 Items): Wichtigste Kommunikationsmaßnahmen
 
-### 5. Verantwortlichkeiten (Krisenstab nach S1–S6)
-Erstelle für JEDE der folgenden Funktionen einen Eintrag:
-- S1 – Personal
-- S2 – Lage
-- S3 – Einsatz
-- S4 – Versorgung
-- S5 – Presse- und Medienarbeit
-- S6 – Information und Kommunikation
-Jeweils mit 4-6 konkreten Aufgaben. Ordne wenn möglich eine passende Kontaktgruppe zu (aus: ${kontaktGruppen}).
+### Kapitel 5: Eskalationsstufen & Wenn-Dann-Regeln
+**Inhalt** (Fließtext):
+- 4-6 Wenn-Dann-Regeln
+- Pro Regel: ### Wenn: <Trigger>
+- Dann: (als - Bullets, 2-4 Maßnahmen)
+- Eskalation: <Was wenn Maßnahmen nicht greifen>
+**Checkliste** (4-6 Items): Pro Regel "Regel prüfen: <Trigger>"
 
-### 6. Handlungsplan (Phasen)
-Erstelle 4-6 zeitlich geordnete Einsatzphasen mit konkreten Aufgaben:
-- Jede Phase: Name, Dauer (z.B. "0-2h", "2-6h", "6-24h"), 3-6 konkrete Aufgaben
-- Zeitliche Reihenfolge: Sofortmaßnahmen → Erstreaktion → Krisenbewältigung → Stabilisierung → Nachsorge
-- Phasen sollen den gesamten Krisenverlauf abdecken
+### Kapitel 6: Prävention & Vorbereitung
+**Inhalt** (Fließtext):
+- ### Vorbereitung (5-8 Maßnahmen als - Bullets)
+- ### Frühwarnung (3-5 Maßnahmen)
+- ### Schulungen (3-5 Maßnahmen)
+- ### Materialvorhaltung (3-5 Maßnahmen)
+**Checkliste** (10-15 Items): Alle Maßnahmen mit [Vorbereitung]/[Frühwarnung]/[Schulung]/[Material] Prefix
 
-### 7. Szenario-spezifisches Inventar
-Erstelle eine szenario-spezifische Inventar-Empfehlung:
-- 8-15 Materialkategorien, die speziell für dieses Szenario benötigt werden
-- Empfohlene Mengen basierend auf Bevölkerungszahl, Schweregrad und Szenario-Typ
-- Einheiten: "Stück", "kg", "Liter", "Paletten", "Karton", oder "Satz"
-- Kurze Begründung (1 Satz) warum diese Menge für dieses Szenario nötig ist
-- Berücksichtige das bestehende Inventar und dessen Lücken
-- Orientiere dich an BBK-Richtwerten und dem konkreten Risikoprofil
+### Kapitel 7: Material & Ressourcen
+**Inhalt** (Fließtext):
+- 8-15 Materialkategorien als - Bullets
+- Format: - **Kategorie**: Menge Einheit – Begründung
+- Basierend auf Bevölkerungszahl, Schweregrad, bestehendem Inventar
+- Einheiten: Stück, kg, Liter, Paletten, Karton, Satz
+**Checkliste** (8-15 Items): Pro Material "Kategorie: Menge Einheit beschaffen/prüfen"
+
+### Zusätzlich: Einsatzphasen (für separaten Handlungsplan-Tab)
+- 4-6 Phasen mit Name, Dauer und 3-6 Aufgaben
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format (kein Markdown, kein Text drumherum):
 {
-  "risikobewertung": {
-    "bedrohungsanalyse": "<string>",
-    "eintrittswahrscheinlichkeit": "<niedrig|mittel|hoch|sehr_hoch>",
-    "schadensausmass": "<gering|mittel|erheblich|katastrophal>",
-    "betroffene_sektoren": ["<sektor_key>", ...],
-    "risikoeinschaetzung": "<string>"
-  },
-  "praevention": {
-    "vorbereitung": ["...", ...],
-    "fruehwarnung": ["...", ...],
-    "schulungen": ["...", ...],
-    "materialvorhaltung": ["...", ...]
-  },
-  "kommunikationsplan": {
-    "intern": { "sofort": ["...", ...], "laufend": ["...", ...] },
-    "extern": { "bevoelkerung": ["...", ...], "medien": ["...", ...], "behoerden": ["...", ...] },
-    "kanaele": ["...", ...],
-    "sprachregelungen": ["...", ...]
-  },
-  "wennDannSzenarien": [
-    { "trigger": "<string>", "massnahmen": ["...", ...], "eskalation": "<string>" }
-  ],
-  "verantwortlichkeiten": [
-    { "funktion": "S1 – Personal", "aufgaben": ["...", ...], "kontaktgruppe": "<optional>" }
-  ],
-  "inventar": [
-    { "kategorie": "<Name>", "empfohlene_menge": <number>, "einheit": "<Stück|kg|Liter|Paletten|Karton|Satz>", "begruendung": "<1 Satz>" }
+  "kapitel": [
+    {
+      "nummer": 1,
+      "titel": "Risikobewertung & Gefahrenanalyse",
+      "inhalt": "<mehrzeiliger Fließtext mit Markdown>",
+      "checkliste": [
+        { "text": "<konkrete Aufgabe>", "notiz": "" },
+        ...
+      ]
+    },
+    {
+      "nummer": 2,
+      "titel": "Handlungsplan & Einsatzphasen",
+      "inhalt": "...",
+      "checkliste": [...]
+    },
+    ...
   ],
   "phasen": [
     { "name": "<string>", "dauer": "<string>", "aufgaben": ["...", ...] }
   ]
 }`
-}
-
-// ─── Auto-Checklisten generieren ──────────────────────
-// deno-lint-ignore no-explicit-any
-async function generateAutoChecklists(supabase: any, scenarioId: string, districtId: string, scenario: any, handbook: AIHandbookResponse) {
-  try {
-    // 1. Bestehende auto-generierte Checklisten für dieses Szenario löschen
-    await supabase
-      .from('checklists')
-      .delete()
-      .eq('scenario_id', scenarioId)
-      .eq('district_id', districtId)
-      .like('description', '%Automatisch generiert%')
-
-    const checklistsToInsert = []
-
-    // 2. Prävention-Checkliste
-    const praeventionItems: string[] = [
-      ...(handbook.praevention.vorbereitung || []),
-      ...(handbook.praevention.fruehwarnung || []),
-      ...(handbook.praevention.schulungen || []),
-      ...(handbook.praevention.materialvorhaltung || []),
-    ].filter(s => s.trim())
-
-    if (praeventionItems.length > 0) {
-      checklistsToInsert.push({
-        district_id: districtId,
-        scenario_id: scenarioId,
-        title: `Prävention: ${scenario.title}`,
-        description: 'Automatisch generierte Präventions-Checkliste aus dem KI-Krisenhandbuch.',
-        category: 'sofortmassnahmen',
-        is_template: false,
-        items: praeventionItems.map(text => ({
-          id: crypto.randomUUID(),
-          text,
-          status: 'open',
-          completed_at: null,
-          completed_by: null,
-        })),
-      })
-    }
-
-    // 3. Krisenstab-Aufgaben-Checkliste
-    const krisenstabItems: string[] = []
-    for (const rolle of (handbook.verantwortlichkeiten || [])) {
-      const prefix = rolle.funktion.substring(0, 2).toUpperCase()
-      for (const aufgabe of (rolle.aufgaben || [])) {
-        krisenstabItems.push(`[${prefix}] ${aufgabe}`)
-      }
-    }
-
-    if (krisenstabItems.length > 0) {
-      checklistsToInsert.push({
-        district_id: districtId,
-        scenario_id: scenarioId,
-        title: `Krisenstab-Aufgaben: ${scenario.title}`,
-        description: 'Automatisch generierte Krisenstab-Checkliste aus dem KI-Krisenhandbuch (S1–S6).',
-        category: 'krisenstab',
-        is_template: false,
-        items: krisenstabItems.map(text => ({
-          id: crypto.randomUUID(),
-          text,
-          status: 'open',
-          completed_at: null,
-          completed_by: null,
-        })),
-      })
-    }
-
-    // 4. Kommunikation-Checkliste
-    const kommunikationItems: string[] = []
-    const k = handbook.kommunikationsplan
-    if (k) {
-      for (const s of (k.intern?.sofort || [])) kommunikationItems.push(`[Sofort] ${s}`)
-      for (const s of (k.intern?.laufend || [])) kommunikationItems.push(`[Laufend] ${s}`)
-      for (const s of (k.extern?.bevoelkerung || [])) kommunikationItems.push(`[Bevölkerung] ${s}`)
-      for (const s of (k.extern?.medien || [])) kommunikationItems.push(`[Medien] ${s}`)
-      for (const s of (k.extern?.behoerden || [])) kommunikationItems.push(`[Behörden] ${s}`)
-    }
-
-    if (kommunikationItems.length > 0) {
-      checklistsToInsert.push({
-        district_id: districtId,
-        scenario_id: scenarioId,
-        title: `Kommunikation: ${scenario.title}`,
-        description: 'Automatisch generierte Kommunikations-Checkliste aus dem KI-Krisenhandbuch.',
-        category: 'kommunikation',
-        is_template: false,
-        items: kommunikationItems.map(text => ({
-          id: crypto.randomUUID(),
-          text,
-          status: 'open',
-          completed_at: null,
-          completed_by: null,
-        })),
-      })
-    }
-
-    // 5. Alle auf einmal inserieren
-    if (checklistsToInsert.length > 0) {
-      const { error } = await supabase.from('checklists').insert(checklistsToInsert)
-      if (error) {
-        console.error('Auto-Checklisten Insert-Fehler:', error)
-      } else {
-        console.log(`${checklistsToInsert.length} Auto-Checklisten erstellt für "${scenario.title}"`)
-      }
-    }
-  } catch (err) {
-    // Non-blocking: Fehler loggen, aber nicht die Hauptantwort beeinflussen
-    console.error('Auto-Checklisten Fehler (non-blocking):', err)
-  }
 }
 
 // ─── Edge Function Handler ────────────────────────────
@@ -487,12 +349,10 @@ Deno.serve(async (req) => {
             .download(doc.storage_path)
 
           if (fileData) {
-            // Text aus dem Dokument extrahieren (max 8000 Zeichen)
             const text = await fileData.text()
             documentText = text.substring(0, 8000)
             console.log(`Dokument geladen: ${doc.name} (${documentText.length} Zeichen)`)
 
-            // Dokument als verarbeitet markieren
             await supabase
               .from('documents')
               .update({ is_processed: true })
@@ -518,45 +378,54 @@ Deno.serve(async (req) => {
       documentText
     )
 
-    console.log(`KI-Handbuch generieren für Szenario "${scenario.title}" (District: ${district.name})${documentId ? ' [mit Dokument-Kontext]' : ''}`)
+    console.log(`KI-Handbuch V2 generieren für Szenario "${scenario.title}" (District: ${district.name})${documentId ? ' [mit Dokument-Kontext]' : ''}`)
 
-    // 12. Langdock API aufrufen (mehr Tokens für umfangreiches Handbuch)
+    // 12. Langdock API aufrufen
     const aiResponse = await callLangdock(
       [
         { role: 'system', content: systemPrompt },
         {
           role: 'user',
           content: documentText
-            ? `Ergänze und strukturiere den bestehenden Handlungsplan zu einem vollständigen Krisenmanagement-Handbuch für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`
-            : `Erstelle jetzt das vollständige Krisenmanagement-Handbuch für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`,
+            ? `Ergänze und strukturiere den bestehenden Handlungsplan zu einem vollständigen Krisenmanagement-Handbuch (V2 Kapitel-Format) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`
+            : `Erstelle jetzt das vollständige Krisenmanagement-Handbuch (V2 Kapitel-Format) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`,
         },
       ],
       { max_tokens: 10240 }
     )
 
     // 13. JSON parsen
-    const handbook: AIHandbookResponse = JSON.parse(aiResponse)
+    const aiResult: AIHandbookResponseV2 = JSON.parse(aiResponse)
 
-    // 14. Soft-Default für optionale Sektionen
-    if (!handbook.inventar) {
-      handbook.inventar = []
+    // 14. Validieren
+    if (!aiResult.kapitel || !Array.isArray(aiResult.kapitel) || aiResult.kapitel.length === 0) {
+      throw new Error('KI-Antwort hat ein ungültiges Format. Keine Kapitel vorhanden.')
     }
 
-    // 14b. Validieren
-    if (!handbook.risikobewertung || !handbook.praevention || !handbook.kommunikationsplan || !handbook.verantwortlichkeiten || !handbook.phasen) {
-      throw new Error('KI-Antwort hat ein ungültiges Format. Nicht alle Abschnitte vorhanden.')
-    }
-
-    // 15. Handbook mit Timestamp speichern
-    const handbookWithTimestamp = {
-      ...handbook,
+    // 15. V2-Handbook aufbauen mit IDs und Status
+    const handbookV2 = {
+      version: 2 as const,
+      kapitel: aiResult.kapitel.map((kap) => ({
+        id: `kap-${kap.nummer}`,
+        nummer: kap.nummer,
+        titel: kap.titel,
+        inhalt: kap.inhalt || '',
+        checkliste: (kap.checkliste || []).map((item) => ({
+          id: crypto.randomUUID(),
+          text: item.text,
+          status: 'open' as const,
+          notiz: item.notiz || '',
+          completed_at: null,
+        })),
+      })),
       generated_at: new Date().toISOString(),
     }
 
+    // 16. Handbook speichern
     const { data: updatedScenario, error: updateError } = await supabase
       .from('scenarios')
       .update({
-        handbook: handbookWithTimestamp,
+        handbook: handbookV2,
         is_handbook_generated: true,
       })
       .eq('id', scenarioId)
@@ -568,14 +437,15 @@ Deno.serve(async (req) => {
       throw new Error('Fehler beim Speichern des Handbuchs.')
     }
 
-    console.log(`KI-Handbuch erstellt für "${scenario.title}" – ${handbook.verantwortlichkeiten.length} Rollen, ${handbook.wennDannSzenarien?.length || 0} Wenn-Dann-Szenarien, ${handbook.phasen?.length || 0} Phasen`)
+    const totalChecklistItems = handbookV2.kapitel.reduce((sum, k) => sum + k.checkliste.length, 0)
+    console.log(`KI-Handbuch V2 erstellt für "${scenario.title}" – ${handbookV2.kapitel.length} Kapitel, ${totalChecklistItems} Checklisten-Items`)
 
-    // 16. Phasen: bestehende löschen + neue aus KI einfügen
+    // 17. Phasen: bestehende löschen + neue aus KI einfügen
     try {
       await supabase.from('scenario_phases').delete().eq('scenario_id', scenarioId)
 
-      if (handbook.phasen?.length > 0) {
-        const phaseInserts = handbook.phasen.map((p, i) => ({
+      if (aiResult.phasen?.length > 0) {
+        const phaseInserts = aiResult.phasen.map((p, i) => ({
           scenario_id: scenarioId,
           sort_order: i,
           name: p.name,
@@ -593,10 +463,7 @@ Deno.serve(async (req) => {
       console.warn('Phasen-Insert fehlgeschlagen (non-blocking):', phaseErr)
     }
 
-    // 17. Auto-Checklisten generieren (non-blocking)
-    await generateAutoChecklists(supabase, scenarioId, district.id, scenario, handbook)
-
-    // 18. Ergebnis zurückgeben
+    // 18. Ergebnis zurückgeben (keine Auto-Checklisten mehr – leben jetzt in Kapiteln)
     return new Response(
       JSON.stringify({
         success: true,

@@ -121,7 +121,7 @@ export default function HandlungsplanTab({ phases, onSavePhases, saving, isEditi
 
   return (
     <div>
-      <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         {data.map((phase, pi) => (
           <div key={pi} className="rounded-2xl border border-border bg-white p-6">
             {isEditing ? (
@@ -230,7 +230,7 @@ export default function HandlungsplanTab({ phases, onSavePhases, saving, isEditi
         {isEditing && (
           <button
             onClick={addPhase}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-white p-4 text-sm text-primary-600 transition-colors hover:bg-primary-50"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-white p-4 text-sm text-primary-600 transition-colors hover:bg-primary-50 sm:col-span-2"
           >
             <Plus className="h-4 w-4" />
             Neue Phase
@@ -238,7 +238,7 @@ export default function HandlungsplanTab({ phases, onSavePhases, saving, isEditi
         )}
 
         {isEditing && data.length === 0 && (
-          <p className="py-6 text-center text-sm text-text-muted">
+          <p className="py-6 text-center text-sm text-text-muted sm:col-span-2">
             Noch keine Phasen. Klicken Sie auf „Neue Phase", um den Handlungsplan zu erstellen.
           </p>
         )}

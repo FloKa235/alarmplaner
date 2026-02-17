@@ -1,57 +1,50 @@
-import { useState, useRef } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  ArrowLeft, Flame, Sparkles, Edit3, Download, Users, MapPin, Clock,
-  Loader2, Lock, Upload, CheckCircle2, X,
-  ShieldAlert, Shield, MessageCircle, GitBranch, UserCheck, ClipboardList, Package,
+  Flame, Sparkles, Edit3, Download,
+  Loader2, Upload, CheckCircle2, X, FileText,
+  ClipboardList, LayoutDashboard, BookOpen,
 } from 'lucide-react'
-import PageHeader from '@/components/ui/PageHeader'
-import StatCard from '@/components/ui/StatCard'
-import Badge from '@/components/ui/Badge'
 import Modal, { FormField, ModalFooter, inputClass, selectClass, textareaClass } from '@/components/ui/Modal'
 import { useSupabaseSingle, useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { useDistrict } from '@/hooks/useDistrict'
 import { useHandbookEnrichment } from '@/hooks/useAI'
 import { supabase } from '@/lib/supabase'
 import { exportScenarioPDF } from '@/utils/pdf-export'
-import type { DbScenario, DbScenarioPhase, DbAlertContact } from '@/types/database'
+import { isHandbookV2 } from '@/types/database'
+import type { DbScenario, DbScenarioPhase, ScenarioHandbook, ScenarioHandbookV2 } from '@/types/database'
+import { migrateV1toV2 } from '@/utils/handbook-migration'
 
 // Tab-Komponenten
 import HandlungsplanTab from './szenario-detail/HandlungsplanTab'
 import type { PhaseForm } from './szenario-detail/HandlungsplanTab'
-import RisikobewertungTab from './szenario-detail/RisikobewertungTab'
-import PraeventionTab from './szenario-detail/PraeventionTab'
-import KommunikationsplanTab from './szenario-detail/KommunikationsplanTab'
-import WennDannTab from './szenario-detail/WennDannTab'
-import VerantwortlichkeitenTab from './szenario-detail/VerantwortlichkeitenTab'
-import InventarTab from './szenario-detail/InventarTab'
+import UebersichtTab from './szenario-detail/UebersichtTab'
+import KrisenhandbuchTab from './szenario-detail/KrisenhandbuchTab'
 import ChecklistenTab from './szenario-detail/ChecklistenTab'
+import DokumenteTab from './szenario-detail/DokumenteTab'
 
-// ─── Tab-Config ──────────────────────────────────────
-type TabKey = 'handlungsplan' | 'risiko' | 'praevention' | 'kommunikation' | 'wenn-dann' | 'verantwortlichkeiten' | 'inventar' | 'checklisten'
+// ─── Tab-Config (5 Tabs) ───────────────────────────────
+type TabKey = 'uebersicht' | 'krisenhandbuch' | 'handlungsplan' | 'checklisten' | 'dokumente'
 
 const TABS: { key: TabKey; label: string; icon: typeof Flame; needsHandbook: boolean }[] = [
+  { key: 'uebersicht', label: 'Übersicht', icon: LayoutDashboard, needsHandbook: false },
+  { key: 'krisenhandbuch', label: 'Krisenhandbuch', icon: BookOpen, needsHandbook: false },
   { key: 'handlungsplan', label: 'Handlungsplan', icon: ClipboardList, needsHandbook: false },
-  { key: 'risiko', label: 'Risiko', icon: ShieldAlert, needsHandbook: true },
-  { key: 'praevention', label: 'Prävention', icon: Shield, needsHandbook: true },
-  { key: 'kommunikation', label: 'Kommunikation', icon: MessageCircle, needsHandbook: true },
-  { key: 'wenn-dann', label: 'Wenn-Dann', icon: GitBranch, needsHandbook: true },
-  { key: 'verantwortlichkeiten', label: 'Verantwortlichkeiten', icon: UserCheck, needsHandbook: true },
-  { key: 'inventar', label: 'Inventar', icon: Package, needsHandbook: true },
-  { key: 'checklisten', label: 'Checklisten', icon: ClipboardList, needsHandbook: false },
+  { key: 'checklisten', label: 'Fortschritt', icon: CheckCircle2, needsHandbook: false },
+  { key: 'dokumente', label: 'Dokumente', icon: FileText, needsHandbook: false },
 ]
 
 // ─── Scenario Types ──────────────────────────────────
 const scenarioTypes = [
-  'Hochwasser', 'Sturm', 'Waldbrand', 'Erdbeben', 'Stromausfall',
-  'Cyberangriff', 'Pandemie', 'Industrieunfall', 'CBRN-Lage',
-  'Sabotage', 'Krieg', 'Terroranschlag',
+  'Starkregen', 'Sturm', 'Hitzewelle', 'Kältewelle', 'Waldbrand',
+  'Amoklauf', 'CBRN', 'Cyberangriff', 'Krieg', 'Pandemie',
+  'Sabotage', 'Stromausfall', 'Terroranschlag',
 ]
 
 export default function SzenarioDetailPage() {
   const { id } = useParams()
   const { district } = useDistrict()
-  const [activeTab, setActiveTab] = useState<TabKey>('handlungsplan')
+  const [activeTab, setActiveTab] = useState<TabKey>('uebersicht')
   const [editingTab, setEditingTab] = useState<TabKey | null>(null)
 
   // ─── Data Fetching ─────────────────────────────────
@@ -75,16 +68,13 @@ export default function SzenarioDetailPage() {
     [id]
   )
 
-  const { data: contacts } = useSupabaseQuery<DbAlertContact>(
-    (sb) =>
-      sb
-        .from('alert_contacts')
-        .select('*')
-        .eq('district_id', district?.id || '')
-        .eq('is_active', true)
-        .order('name'),
-    [district?.id]
-  )
+  // ─── V1 → V2 Auto-Migration ────────────────────────
+  const handbookV2 = useMemo<ScenarioHandbookV2 | null>(() => {
+    if (!scenario?.handbook) return null
+    if (isHandbookV2(scenario.handbook)) return scenario.handbook
+    // Auto-migrate V1 → V2
+    return migrateV1toV2(scenario.handbook as ScenarioHandbook, phases)
+  }, [scenario?.handbook, phases])
 
   // ─── KI-Handbook Enrichment ──────────────────────────
   const [uploadedDocId, setUploadedDocId] = useState<string | null>(null)
@@ -107,13 +97,13 @@ export default function SzenarioDetailPage() {
     if (!district?.id) return
     setUploadingDoc(true)
     try {
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin'
       const storagePath = `${district.id}/${crypto.randomUUID()}_${file.name}`
       const { error: uploadError } = await supabase.storage
         .from('documents')
         .upload(storagePath, file, { contentType: file.type, upsert: false })
       if (uploadError) throw uploadError
 
+      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin'
       const { data: docRecord, error: insertError } = await supabase
         .from('documents')
         .insert({
@@ -138,22 +128,21 @@ export default function SzenarioDetailPage() {
     }
   }
 
-  // ─── Handbook Section Update ──────────────────────────
+  // ─── Handbook V2 Update (ganzes Handbuch) ──────────────
   const [handbookSaving, setHandbookSaving] = useState(false)
 
-  const onUpdateHandbook = async (section: string, data: unknown) => {
-    if (!scenario || !handbook) return
+  const onUpdateHandbook = async (updated: ScenarioHandbookV2) => {
+    if (!scenario) return
     setHandbookSaving(true)
     try {
-      const updated = { ...handbook, [section]: data }
       const { error } = await supabase
         .from('scenarios')
-        .update({ handbook: updated })
+        .update({ handbook: updated as unknown as Record<string, unknown> })
         .eq('id', scenario.id)
       if (error) throw error
       refetchScenario()
     } catch (err) {
-      console.error('Handbuch-Abschnitt speichern fehlgeschlagen:', err)
+      console.error('Krisenhandbuch speichern fehlgeschlagen:', err)
     } finally {
       setHandbookSaving(false)
     }
@@ -252,7 +241,7 @@ export default function SzenarioDetailPage() {
   // ─── PDF Export ────────────────────────────────────
   const handlePDFExport = () => {
     if (!scenario) return
-    exportScenarioPDF(scenario, phases, district?.name, contacts)
+    exportScenarioPDF(scenario, phases, district?.name)
   }
 
   // ─── Loading / Not Found ───────────────────────────
@@ -276,153 +265,121 @@ export default function SzenarioDetailPage() {
     )
   }
 
-  const handbook = scenario.handbook
-
-  // Tabs die editierbar sind (nicht Risiko, nicht Checklisten)
-  const isEditableTab = activeTab !== 'risiko' && activeTab !== 'checklisten'
-  // Bearbeiten nur wenn Handbook existiert (für alle Tabs inkl. Handlungsplan)
-  const canEdit = isEditableTab && !!handbook
+  // Tabs die editierbar sind: Krisenhandbuch + Handlungsplan
+  const isEditableTab = activeTab === 'krisenhandbuch' || activeTab === 'handlungsplan'
+  const canEdit = isEditableTab && (activeTab === 'handlungsplan' ? !!handbookV2 : !!handbookV2)
 
   return (
     <div>
-      <Link
-        to="/pro/szenarien"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Zurück zu Szenarien
-      </Link>
-
-      <PageHeader
-        title={scenario.title}
-        description={scenario.is_default ? 'Pflicht-Krisenszenario mit editierbarem Handlungsplan.' : 'KI-generiertes Krisenszenario mit editierbarem Handlungsplan.'}
-        badge={scenario.is_default ? 'Pflicht-Szenario' : 'Szenario'}
-        actions={
-          <div className="flex gap-2">
-            {/* PDF Export */}
-            <button
-              onClick={handlePDFExport}
-              className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary"
-            >
-              <Download className="h-4 w-4" />
-              PDF
-            </button>
-
-            {/* Upload-Button (nur wenn Handbook noch nicht generiert) */}
-            {!handbook && (
-              <>
-                <input
-                  ref={docFileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.txt"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
-                />
-                <button
-                  onClick={() => docFileInputRef.current?.click()}
-                  disabled={uploadingDoc || enriching}
-                  className="relative flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary disabled:opacity-60"
-                  title={uploadedFileName ? `Dokument: ${uploadedFileName}` : 'Bestehenden Plan hochladen (optional)'}
-                >
-                  {uploadingDoc ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : uploadedFileName ? (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
-                      <span className="max-w-[120px] truncate text-green-700">{uploadedFileName}</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setUploadedDocId(null); setUploadedFileName(null) }}
-                        className="ml-1 rounded p-0.5 text-text-muted transition-colors hover:text-red-500"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-4 w-4" />
-                      Upload
-                    </>
-                  )}
-                </button>
-              </>
+      {/* Header: Titel + Meta-Chips + Actions in einer Zeile */}
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-2xl font-bold tracking-tight text-text-primary">{scenario.title}</h1>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-semibold text-orange-700">
+              <Flame className="h-3 w-3" />
+              {scenario.severity}/100
+            </span>
+            {scenario.affected_population && (
+              <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-text-secondary">
+                ~{scenario.affected_population.toLocaleString('de-DE')} Betroffene
+              </span>
             )}
-
-            {/* KI-Generieren Button (nur wenn Handbook noch nicht generiert) */}
-            {!handbook && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-text-secondary">
+              {new Date(scenario.created_at).toLocaleDateString('de-DE')}
+            </span>
+            {scenario.is_ai_generated && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">
+                <Sparkles className="h-3 w-3" /> KI
+              </span>
+            )}
+            <button
+              onClick={openMetaModal}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50"
+              title="Szenario-Details bearbeiten"
+            >
+              <Edit3 className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePDFExport}
+            className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary"
+          >
+            <Download className="h-4 w-4" />
+            PDF
+          </button>
+          {!scenario.handbook && (
+            <>
+              <input
+                ref={docFileInputRef}
+                type="file"
+                accept=".pdf,.docx,.txt"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
+              />
               <button
-                onClick={handleEnrich}
-                disabled={enriching}
-                className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+                onClick={() => docFileInputRef.current?.click()}
+                disabled={uploadingDoc || enriching}
+                className="relative flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary disabled:opacity-60"
+                title={uploadedFileName ? `Dokument: ${uploadedFileName}` : 'Bestehenden Plan hochladen (optional)'}
               >
-                {enriching ? (
+                {uploadingDoc ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : uploadedFileName ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generiere…
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <span className="max-w-[120px] truncate text-green-700">{uploadedFileName}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setUploadedDocId(null); setUploadedFileName(null) }}
+                      className="ml-1 rounded p-0.5 text-text-muted transition-colors hover:text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-4 w-4" />
-                    KI generieren
+                    <Upload className="h-4 w-4" />
+                    Upload
                   </>
                 )}
               </button>
-            )}
-
-            {/* Bearbeiten-Button: sichtbar wenn editierbarer Tab + Handbook existiert + nicht bereits im Edit-Modus */}
-            {canEdit && editingTab !== activeTab && (
-              <button
-                onClick={() => setEditingTab(activeTab)}
-                className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
-              >
-                <Edit3 className="h-4 w-4" />
-                Bearbeiten
-              </button>
-            )}
-          </div>
-        }
-      />
-
-      {/* Meta info */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
-        <StatCard icon={<Flame className="h-5 w-5" />} label="Schweregrad" value={`${scenario.severity}/100`} />
-        <StatCard icon={<Users className="h-5 w-5" />} label="Betroffene" value={scenario.affected_population ? `~${scenario.affected_population.toLocaleString('de-DE')}` : 'k.A.'} />
-        <StatCard icon={<MapPin className="h-5 w-5" />} label="Typ" value={scenario.type} />
-        <StatCard icon={<Clock className="h-5 w-5" />} label="Erstellt am" value={new Date(scenario.created_at).toLocaleDateString('de-DE')} />
+            </>
+          )}
+          {!scenario.handbook && (
+            <button
+              onClick={handleEnrich}
+              disabled={enriching}
+              className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+            >
+              {enriching ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generiere…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  KI generieren
+                </>
+              )}
+            </button>
+          )}
+          {canEdit && editingTab !== activeTab && (
+            <button
+              onClick={() => setEditingTab(activeTab)}
+              className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
+            >
+              <Edit3 className="h-4 w-4" />
+              Bearbeiten
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Description */}
-      {scenario.description && (
-        <div className="mb-6 rounded-2xl border border-border bg-white p-6">
-          <div className="mb-3 flex items-center gap-2">
-            <h2 className="text-lg font-bold text-text-primary">Beschreibung</h2>
-            {!scenario.is_default && (
-              <button
-                onClick={openMetaModal}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-secondary hover:text-primary-600"
-                title="Szenario-Details bearbeiten"
-              >
-                <Edit3 className="h-3.5 w-3.5" />
-              </button>
-            )}
-            {scenario.is_default && (
-              <Badge variant="warning">
-                <Lock className="mr-1 h-3 w-3" />
-                Pflicht
-              </Badge>
-            )}
-            {scenario.is_ai_generated && (
-              <Badge variant="info">
-                <Sparkles className="mr-1 h-3 w-3" />
-                KI-generiert
-              </Badge>
-            )}
-          </div>
-          <p className="leading-relaxed text-text-secondary">{scenario.description}</p>
-        </div>
-      )}
-
       {/* Enriching-Banner (während Generierung) */}
-      {enriching && !handbook && (
+      {enriching && !scenario.handbook && (
         <div className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
           <p className="text-sm text-amber-800">
@@ -432,12 +389,12 @@ export default function SzenarioDetailPage() {
       )}
 
       {/* Tab-Leiste */}
-      <div className="mb-6 overflow-x-auto border-b border-border">
+      <div className="mb-3 overflow-x-auto border-b border-border">
         <div className="flex min-w-max gap-1">
           {TABS.map(tab => {
             const isActive = activeTab === tab.key
             const Icon = tab.icon
-            const isDisabled = tab.needsHandbook && !handbook
+            const isDisabled = tab.needsHandbook && !handbookV2
 
             return (
               <button
@@ -460,10 +417,38 @@ export default function SzenarioDetailPage() {
         </div>
       </div>
 
+      {/* Tab-spezifische KPI-Leiste */}
+      <TabKPIs activeTab={activeTab} handbook={handbookV2} phases={phases} />
+
       {/* Tab-Content */}
       <div>
+        {activeTab === 'uebersicht' && (
+          <UebersichtTab scenario={scenario} handbook={handbookV2} phases={phases} />
+        )}
+
+        {activeTab === 'krisenhandbuch' && (
+          handbookV2 ? (
+            <KrisenhandbuchTab
+              handbook={handbookV2}
+              scenarioId={scenario.id}
+              districtId={district?.id || ''}
+              onUpdateHandbook={onUpdateHandbook}
+              saving={handbookSaving}
+              isEditing={editingTab === 'krisenhandbuch'}
+              onStopEditing={() => setEditingTab(null)}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
+              <BookOpen className="mx-auto mb-3 h-8 w-8 text-text-muted" />
+              <p className="text-sm text-text-secondary">
+                Noch kein Krisenhandbuch vorhanden. Klicken Sie oben auf „KI generieren", um das vollständige Krisenhandbuch zu erstellen.
+              </p>
+            </div>
+          )
+        )}
+
         {activeTab === 'handlungsplan' && (
-          handbook ? (
+          handbookV2 ? (
             <HandlungsplanTab
               phases={phases}
               onSavePhases={onSavePhases}
@@ -481,42 +466,20 @@ export default function SzenarioDetailPage() {
           )
         )}
 
-        {activeTab === 'risiko' && handbook && (
-          <RisikobewertungTab handbook={handbook} />
+        {activeTab === 'checklisten' && handbookV2 && (
+          <ChecklistenTab handbook={handbookV2} />
         )}
-
-        {activeTab === 'praevention' && handbook && (
-          <PraeventionTab handbook={handbook} onUpdateHandbook={onUpdateHandbook} saving={handbookSaving} isEditing={editingTab === 'praevention'} onStopEditing={() => setEditingTab(null)} />
-        )}
-
-        {activeTab === 'kommunikation' && handbook && (
-          <KommunikationsplanTab handbook={handbook} onUpdateHandbook={onUpdateHandbook} saving={handbookSaving} isEditing={editingTab === 'kommunikation'} onStopEditing={() => setEditingTab(null)} />
-        )}
-
-        {activeTab === 'wenn-dann' && handbook && (
-          <WennDannTab handbook={handbook} onUpdateHandbook={onUpdateHandbook} saving={handbookSaving} isEditing={editingTab === 'wenn-dann'} onStopEditing={() => setEditingTab(null)} />
-        )}
-
-        {activeTab === 'verantwortlichkeiten' && handbook && (
-          <VerantwortlichkeitenTab handbook={handbook} contacts={contacts} onUpdateHandbook={onUpdateHandbook} saving={handbookSaving} isEditing={editingTab === 'verantwortlichkeiten'} onStopEditing={() => setEditingTab(null)} />
-        )}
-
-        {activeTab === 'inventar' && handbook && district && (
-          <InventarTab handbook={handbook} districtId={district.id} onUpdateHandbook={onUpdateHandbook} saving={handbookSaving} isEditing={editingTab === 'inventar'} onStopEditing={() => setEditingTab(null)} />
-        )}
-
-        {activeTab === 'checklisten' && scenario && district && (
-          <ChecklistenTab scenarioId={scenario.id} districtId={district.id} />
-        )}
-
-        {/* Empty State für Handbook-Tabs wenn nicht generiert */}
-        {activeTab !== 'handlungsplan' && activeTab !== 'checklisten' && !handbook && (
+        {activeTab === 'checklisten' && !handbookV2 && (
           <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-            <Sparkles className="mx-auto mb-3 h-8 w-8 text-text-muted" />
+            <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-text-muted" />
             <p className="text-sm text-text-secondary">
-              Noch keine Daten vorhanden. Klicken Sie oben auf „KI generieren", um das vollständige Krisenhandbuch zu erstellen.
+              Noch keine Checklisten vorhanden. Generieren Sie zuerst das Krisenhandbuch.
             </p>
           </div>
+        )}
+
+        {activeTab === 'dokumente' && scenario && district && (
+          <DokumenteTab scenarioId={scenario.id} districtId={district.id} />
         )}
       </div>
 
@@ -589,6 +552,86 @@ export default function SzenarioDetailPage() {
           disabled={!metaForm.title.trim() || !metaForm.type}
         />
       </Modal>
+    </div>
+  )
+}
+
+// ─── Tab-spezifische KPI-Leiste ─────────────────────
+interface KPI { label: string; value: string | number; color: 'primary' | 'green' | 'amber' | 'red' | 'gray' }
+
+const kpiColorClasses: Record<KPI['color'], string> = {
+  primary: 'bg-primary-50 text-primary-700',
+  green: 'bg-green-50 text-green-700',
+  amber: 'bg-amber-50 text-amber-700',
+  red: 'bg-red-50 text-red-700',
+  gray: 'bg-gray-100 text-gray-600',
+}
+
+function getTabKPIs(
+  activeTab: TabKey,
+  handbook: ScenarioHandbookV2 | null,
+  phases: DbScenarioPhase[],
+): KPI[] {
+  switch (activeTab) {
+    case 'uebersicht':
+      return [] // Mini-Stats sind direkt im Tab
+    case 'krisenhandbuch': {
+      if (!handbook) return []
+      const kapitelCount = handbook.kapitel.length
+      const totalItems = handbook.kapitel.reduce((sum, k) => sum + k.checkliste.length, 0)
+      const doneItems = handbook.kapitel.reduce(
+        (sum, k) => sum + k.checkliste.filter(i => i.status === 'done' || i.status === 'skipped').length, 0
+      )
+      const percent = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0
+      return [
+        { label: 'Kapitel', value: kapitelCount, color: 'primary' },
+        { label: 'Checklisten-Punkte', value: totalItems, color: 'primary' },
+        { label: 'Fortschritt', value: `${percent}%`, color: percent >= 80 ? 'green' : percent >= 40 ? 'amber' : 'gray' },
+      ]
+    }
+    case 'handlungsplan': {
+      const totalTasks = phases.reduce((acc, p) => acc + (p.tasks?.length || 0), 0)
+      return [
+        { label: 'Phasen', value: phases.length, color: 'primary' },
+        { label: 'Aufgaben', value: totalTasks, color: 'primary' },
+      ]
+    }
+    case 'checklisten': {
+      if (!handbook) return [{ label: 'Aufgaben', value: 0, color: 'gray' }]
+      const allItems = handbook.kapitel.flatMap(k => k.checkliste)
+      const doneCount = allItems.filter(i => i.status === 'done' || i.status === 'skipped').length
+      const percent = allItems.length > 0 ? Math.round((doneCount / allItems.length) * 100) : 0
+      return [
+        { label: 'Aufgaben', value: allItems.length, color: 'primary' },
+        { label: 'Erledigt', value: doneCount, color: doneCount === allItems.length && allItems.length > 0 ? 'green' : 'primary' },
+        { label: 'Fortschritt', value: `${percent}%`, color: percent >= 80 ? 'green' : percent >= 40 ? 'amber' : 'gray' },
+      ]
+    }
+    case 'dokumente':
+      return []
+    default:
+      return []
+  }
+}
+
+function TabKPIs({ activeTab, handbook, phases }: {
+  activeTab: TabKey
+  handbook: ScenarioHandbookV2 | null
+  phases: DbScenarioPhase[]
+}) {
+  const kpis = getTabKPIs(activeTab, handbook, phases)
+  if (kpis.length === 0) return null
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2">
+      {kpis.map((kpi) => (
+        <span
+          key={kpi.label}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${kpiColorClasses[kpi.color]}`}
+        >
+          {kpi.label}: {kpi.value}
+        </span>
+      ))}
     </div>
   )
 }

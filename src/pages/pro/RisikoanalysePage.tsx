@@ -190,7 +190,7 @@ export default function RisikoanalysePage() {
       <PageHeader
         title="KI-gestützte Risikoanalyse"
         description={`Intelligente Auswertung für ${district?.name || 'Ihren Landkreis'}`}
-        badge="Säule 1"
+
       />
 
       {/* ─── 1. Gesamtrisiko + Datenquellen ────────────────── */}

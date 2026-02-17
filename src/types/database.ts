@@ -154,12 +154,39 @@ export interface DbScenario {
   is_ai_generated: boolean
   is_edited: boolean
   is_default: boolean
-  handbook: ScenarioHandbook | null
+  handbook: ScenarioHandbook | ScenarioHandbookV2 | null
   is_handbook_generated: boolean
   created_at: string
 }
 
-// ─── Szenario-Handbuch (KI-generiert) ──────────────
+// ─── Krisenhandbuch V2 (Kapitel-basiert) ──────────────
+export interface KapitelChecklistItem {
+  id: string
+  text: string
+  status: 'open' | 'done' | 'skipped'
+  notiz: string
+  completed_at: string | null
+}
+
+export interface KrisenhandbuchKapitel {
+  id: string
+  nummer: number
+  titel: string
+  inhalt: string
+  checkliste: KapitelChecklistItem[]
+}
+
+export interface ScenarioHandbookV2 {
+  version: 2
+  kapitel: KrisenhandbuchKapitel[]
+  generated_at: string
+}
+
+export function isHandbookV2(h: ScenarioHandbook | ScenarioHandbookV2 | null): h is ScenarioHandbookV2 {
+  return h !== null && 'version' in h && (h as ScenarioHandbookV2).version === 2
+}
+
+// ─── Szenario-Handbuch V1 (Legacy, KI-generiert) ─────
 export interface ScenarioHandbook {
   risikobewertung: {
     bedrohungsanalyse: string
@@ -250,6 +277,7 @@ export interface DbAlert {
 export interface DbDocument {
   id: string
   district_id: string
+  scenario_id: string | null
   name: string
   file_type: string
   size_bytes: number | null
@@ -330,7 +358,7 @@ export interface DbScenarioInsert {
   is_ai_generated?: boolean
   is_edited?: boolean
   is_default?: boolean
-  handbook?: ScenarioHandbook | null
+  handbook?: ScenarioHandbook | ScenarioHandbookV2 | null
   is_handbook_generated?: boolean
 }
 
@@ -382,6 +410,7 @@ export interface DbAlertInsert {
 export interface DbDocumentInsert {
   id?: string
   district_id: string
+  scenario_id?: string | null
   name: string
   file_type: string
   size_bytes?: number | null

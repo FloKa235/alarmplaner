@@ -1,12 +1,38 @@
-import { Package, Plus, Upload, Download, Sparkles, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { Package, Plus, Upload, Download, Sparkles, Loader2, ChevronDown, ChevronUp, Flame } from 'lucide-react'
+import { useState, useMemo } from 'react'
 import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import Modal, { FormField, inputClass, selectClass, ModalFooter, ConfirmDialog, RowActions } from '@/components/ui/Modal'
 import { useDistrict } from '@/hooks/useDistrict'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { supabase } from '@/lib/supabase'
-import type { DbInventoryItem } from '@/types/database'
+import type { DbInventoryItem, DbScenario, ScenarioHandbook, ScenarioHandbookV2 } from '@/types/database'
+import { isHandbookV2 } from '@/types/database'
+
+// Inventar-Empfehlungen aus Handbook extrahieren (V1 + V2 kompatibel)
+interface InventarEmpfehlung {
+  kategorie: string
+  empfohlene_menge: number
+  einheit: string
+  begruendung?: string
+}
+
+function extractInventarFromHandbook(handbook: ScenarioHandbook | ScenarioHandbookV2): InventarEmpfehlung[] {
+  if (isHandbookV2(handbook)) {
+    // V2: Kapitel 7 (Material & Ressourcen) → Checkliste als Empfehlungen
+    const materialKapitel = handbook.kapitel.find(k => k.nummer === 7)
+    if (!materialKapitel) return []
+    // Checklisten-Items als einfache Empfehlungen interpretieren
+    return materialKapitel.checkliste.map(item => ({
+      kategorie: item.text,
+      empfohlene_menge: 1,
+      einheit: 'Satz',
+      begruendung: item.notiz || undefined,
+    }))
+  }
+  // V1: inventar-Array direkt verfügbar
+  return (handbook as ScenarioHandbook).inventar || []
+}
 
 function getPercent(current: number, target: number) {
   if (target === 0) return 100
@@ -48,6 +74,60 @@ export default function InventarPage() {
         .order('category'),
     [districtId]
   )
+
+  // Szenarien mit Inventar-Empfehlungen laden
+  const { data: scenarios } = useSupabaseQuery<DbScenario>(
+    (sb) =>
+      sb
+        .from('scenarios')
+        .select('id, title, handbook')
+        .eq('district_id', districtId!)
+        .not('handbook', 'is', null),
+    [districtId]
+  )
+
+  const [showSzenarioBedarf, setShowSzenarioBedarf] = useState(true)
+
+  // Konsolidierte Szenario-Empfehlungen berechnen
+  interface ConsolidatedItem {
+    kategorie: string
+    maxMenge: number
+    einheit: string
+    szenarien: string[]
+  }
+
+  const consolidated = useMemo<ConsolidatedItem[]>(() => {
+    const map = new Map<string, ConsolidatedItem>()
+
+    for (const scenario of scenarios) {
+      if (!scenario.handbook) continue
+      const inv = extractInventarFromHandbook(scenario.handbook as ScenarioHandbook | ScenarioHandbookV2)
+      if (!inv.length) continue
+
+      for (const item of inv) {
+        const key = item.kategorie.toLowerCase().trim()
+        const existing = map.get(key)
+        if (existing) {
+          if (item.empfohlene_menge > existing.maxMenge) {
+            existing.maxMenge = item.empfohlene_menge
+            existing.einheit = item.einheit
+          }
+          if (!existing.szenarien.includes(scenario.title)) {
+            existing.szenarien.push(scenario.title)
+          }
+        } else {
+          map.set(key, {
+            kategorie: item.kategorie,
+            maxMenge: item.empfohlene_menge,
+            einheit: item.einheit,
+            szenarien: [scenario.title],
+          })
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.kategorie.localeCompare(b.kategorie, 'de'))
+  }, [scenarios])
 
   const openCreate = () => {
     setEditId(null)
@@ -165,7 +245,7 @@ export default function InventarPage() {
       <PageHeader
         title="KI-Inventar"
         description="Soll/Ist-Vergleich Ihrer Ressourcen. KI berechnet den optimalen Bedarf pro Szenario."
-        badge="Säule 3"
+
         actions={
           <div className="flex gap-2">
             <button className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary">
@@ -316,6 +396,107 @@ export default function InventarPage() {
           </div>
         )}
       </div>
+
+      {/* Szenario-Bedarf (konsolidiert) */}
+      {consolidated.length > 0 && (
+        <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-white">
+          <button
+            onClick={() => setShowSzenarioBedarf(!showSzenarioBedarf)}
+            className="flex w-full items-center justify-between border-b border-border px-5 py-4 text-left transition-colors hover:bg-surface-secondary/50"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50">
+                <Flame className="h-4 w-4 text-primary-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-text-primary">Szenario-Bedarf</h2>
+                <p className="text-xs text-text-muted">
+                  {consolidated.length} Materialkategorien aus {scenarios.filter(s => s.handbook && extractInventarFromHandbook(s.handbook as ScenarioHandbook | ScenarioHandbookV2).length > 0).length} Szenarien (konsolidiert, Maximalwerte)
+                </p>
+              </div>
+            </div>
+            {showSzenarioBedarf ? (
+              <ChevronUp className="h-5 w-5 text-text-muted" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-text-muted" />
+            )}
+          </button>
+
+          {showSzenarioBedarf && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wider text-text-muted">
+                    <th className="px-5 py-3">Kategorie</th>
+                    <th className="px-5 py-3">Max. Bedarf</th>
+                    <th className="px-5 py-3">Szenarien</th>
+                    <th className="px-5 py-3">Ist-Bestand</th>
+                    <th className="px-5 py-3">Abdeckung</th>
+                    <th className="px-5 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {consolidated.map((c) => {
+                    // Matching gegen inventory_items (case-insensitive)
+                    const liveItem = items.find(
+                      (item) => item.category.toLowerCase().trim() === c.kategorie.toLowerCase().trim()
+                    )
+                    const istMenge = liveItem?.current_quantity ?? 0
+                    const pct = c.maxMenge > 0 ? Math.min(Math.round((istMenge / c.maxMenge) * 100), 100) : 100
+
+                    return (
+                      <tr key={c.kategorie} className="transition-colors hover:bg-surface-secondary/50">
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <Package className="h-4 w-4 text-text-muted" />
+                            <span className="text-sm font-medium text-text-primary">{c.kategorie}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-sm text-text-primary">
+                          {c.maxMenge.toLocaleString('de-DE')} {c.einheit}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap gap-1">
+                            {c.szenarien.slice(0, 3).map((s) => (
+                              <span
+                                key={s}
+                                className="inline-block rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-medium text-primary-700"
+                              >
+                                {s.length > 20 ? s.slice(0, 18) + '…' : s}
+                              </span>
+                            ))}
+                            {c.szenarien.length > 3 && (
+                              <span className="inline-block rounded-full bg-surface-secondary px-2 py-0.5 text-[10px] font-medium text-text-muted">
+                                +{c.szenarien.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-sm text-text-primary">
+                          {istMenge.toLocaleString('de-DE')} {c.einheit}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-20 overflow-hidden rounded-full bg-surface-secondary">
+                              <div className={`h-full rounded-full ${getBarColor(pct)}`} style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs font-medium text-text-primary">{pct}%</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <Badge variant={pct >= 90 ? 'success' : pct >= 60 ? 'warning' : 'danger'}>
+                            {pct >= 90 ? 'OK' : pct >= 60 ? 'Niedrig' : 'Kritisch'}
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Create / Edit Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editId ? 'Inventar-Item bearbeiten' : 'Inventar-Item hinzufügen'}>

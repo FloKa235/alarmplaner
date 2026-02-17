@@ -1,194 +1,164 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ClipboardList, ChevronDown, ChevronRight, CheckCircle2, Circle, MinusCircle, Plus, Clock } from 'lucide-react'
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
-import { supabase } from '@/lib/supabase'
-import type { DbChecklist, ChecklistItem } from '@/types/database'
+import {
+  CheckCircle2, Circle, MinusCircle, BookOpen,
+} from 'lucide-react'
+import type { ScenarioHandbookV2 } from '@/types/database'
+
+// ─── Kapitel-Farben (gleich wie KrisenhandbuchTab) ───
+const KAPITEL_FARBEN: Record<number, { color: string; bg: string; accent: string }> = {
+  1: { color: 'text-red-600', bg: 'bg-red-50', accent: 'bg-red-600' },
+  2: { color: 'text-blue-600', bg: 'bg-blue-50', accent: 'bg-blue-600' },
+  3: { color: 'text-green-600', bg: 'bg-green-50', accent: 'bg-green-600' },
+  4: { color: 'text-amber-600', bg: 'bg-amber-50', accent: 'bg-amber-600' },
+  5: { color: 'text-orange-600', bg: 'bg-orange-50', accent: 'bg-orange-600' },
+  6: { color: 'text-purple-600', bg: 'bg-purple-50', accent: 'bg-purple-600' },
+  7: { color: 'text-teal-600', bg: 'bg-teal-50', accent: 'bg-teal-600' },
+}
+
+const defaultFarbe = { color: 'text-gray-600', bg: 'bg-gray-50', accent: 'bg-gray-600' }
 
 interface ChecklistenTabProps {
-  scenarioId: string
-  districtId: string
+  handbook: ScenarioHandbookV2
 }
 
-function progressPercent(items: ChecklistItem[]): number {
-  if (!items || items.length === 0) return 0
-  const done = items.filter(i => i.status === 'done' || i.status === 'skipped').length
-  return Math.round((done / items.length) * 100)
-}
+export default function ChecklistenTab({ handbook }: ChecklistenTabProps) {
+  const kapitel = handbook.kapitel
 
-export default function ChecklistenTab({ scenarioId, districtId }: ChecklistenTabProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-
-  const { data: checklists, loading, refetch } = useSupabaseQuery<DbChecklist>(
-    (sb) =>
-      sb
-        .from('checklists')
-        .select('*')
-        .eq('scenario_id', scenarioId)
-        .order('created_at', { ascending: false }),
-    [scenarioId]
-  )
-
-  // Toggle item status: open → done → skipped → open
-  const toggleItem = async (checklist: DbChecklist, itemId: string) => {
-    const updatedItems = (checklist.items as ChecklistItem[]).map((item) => {
-      if (item.id !== itemId) return item
-      if (item.status === 'open') {
-        return { ...item, status: 'done' as const, completed_at: new Date().toISOString(), completed_by: null }
-      } else if (item.status === 'done') {
-        return { ...item, status: 'skipped' as const, completed_at: null, completed_by: null }
-      } else {
-        return { ...item, status: 'open' as const, completed_at: null, completed_by: null }
-      }
-    })
-
-    try {
-      const { error } = await supabase
-        .from('checklists')
-        .update({ items: updatedItems, updated_at: new Date().toISOString() })
-        .eq('id', checklist.id)
-        .eq('district_id', districtId)
-      if (error) throw error
-      refetch()
-    } catch (err) {
-      console.error('Item-Status aktualisieren fehlgeschlagen:', err)
-    }
-  }
-
-  if (loading) {
-    return <p className="py-12 text-center text-sm text-text-muted">Lade Checklisten...</p>
-  }
+  // Gesamt-Statistik
+  const allItems = kapitel.flatMap(k => k.checkliste)
+  const totalDone = allItems.filter(i => i.status === 'done').length
+  const totalSkipped = allItems.filter(i => i.status === 'skipped').length
+  const totalOpen = allItems.filter(i => i.status === 'open').length
+  const totalPercent = allItems.length > 0
+    ? Math.round(((totalDone + totalSkipped) / allItems.length) * 100)
+    : 0
 
   return (
     <div className="space-y-4">
-      {/* Hint + Link zu Checklisten-Seite */}
-      <div className="flex items-center justify-between rounded-2xl border border-border bg-white p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-50">
-            <ClipboardList className="h-5 w-5 text-primary-600" />
-          </div>
+      {/* ─── Gesamt-Fortschritt ─── */}
+      <div className="rounded-2xl border border-border bg-white p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-medium text-text-primary">{checklists.length} Checkliste{checklists.length !== 1 ? 'n' : ''} zugeordnet</p>
-            <p className="text-sm text-text-secondary">Klicken Sie auf Aufgaben um den Status zu ändern</p>
+            <h3 className="text-lg font-bold text-text-primary">Gesamtfortschritt</h3>
+            <p className="mt-1 text-sm text-text-secondary">
+              {totalDone + totalSkipped} von {allItems.length} Aufgaben abgeschlossen
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            {/* Fortschrittsbalken */}
+            <div className="h-3 w-48 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className={`h-full rounded-full transition-all ${totalPercent === 100 ? 'bg-green-500' : totalPercent > 0 ? 'bg-primary-600' : 'bg-gray-300'}`}
+                style={{ width: `${totalPercent}%` }}
+              />
+            </div>
+            <span className={`text-xl font-black ${totalPercent === 100 ? 'text-green-600' : 'text-text-primary'}`}>
+              {totalPercent}%
+            </span>
           </div>
         </div>
-        <Link
-          to="/pro/checklisten"
-          className="flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
-        >
-          <Plus className="h-4 w-4" />
-          Neue Checkliste
-        </Link>
+
+        {/* Mini-Stats */}
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <div className="flex items-center gap-2 rounded-xl bg-surface-secondary p-3">
+            <Circle className="h-4 w-4 text-text-muted" />
+            <div>
+              <p className="text-lg font-bold text-text-primary">{totalOpen}</p>
+              <p className="text-xs text-text-muted">Offen</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl bg-green-50 p-3">
+            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <div>
+              <p className="text-lg font-bold text-green-700">{totalDone}</p>
+              <p className="text-xs text-green-600">Erledigt</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl bg-gray-50 p-3">
+            <MinusCircle className="h-4 w-4 text-gray-400" />
+            <div>
+              <p className="text-lg font-bold text-gray-600">{totalSkipped}</p>
+              <p className="text-xs text-gray-500">Übersprungen</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Checklisten-Accordion */}
-      {checklists.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-          <ClipboardList className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-          <p className="text-sm text-text-secondary">
-            Noch keine Checklisten für dieses Szenario.
-          </p>
-          <p className="mt-1 text-sm text-text-muted">
-            Erstellen Sie eine neue Checkliste auf der{' '}
-            <Link to="/pro/checklisten" className="text-primary-600 hover:text-primary-700 underline">
-              Checklisten-Seite
-            </Link>.
-          </p>
-        </div>
-      ) : (
-        checklists.map(cl => {
-          const isExpanded = expandedId === cl.id
-          const items = cl.items as ChecklistItem[]
-          const progress = progressPercent(items)
-          const doneCount = items.filter(i => i.status === 'done').length
+      {/* ─── Pro Kapitel ─── */}
+      {kapitel.map(kap => {
+        const farbe = KAPITEL_FARBEN[kap.nummer] || defaultFarbe
+        const items = kap.checkliste
+        const done = items.filter(i => i.status === 'done' || i.status === 'skipped').length
+        const percent = items.length > 0 ? Math.round((done / items.length) * 100) : 0
 
-          return (
-            <div key={cl.id} className="rounded-2xl border border-border bg-white">
-              {/* Header (klickbar) */}
-              <button
-                onClick={() => setExpandedId(isExpanded ? null : cl.id)}
-                className="flex w-full items-center gap-3 p-5 text-left transition-colors hover:bg-surface-secondary/50"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="h-5 w-5 shrink-0 text-text-muted" />
-                ) : (
-                  <ChevronRight className="h-5 w-5 shrink-0 text-text-muted" />
-                )}
-                <div className="flex-1">
-                  <h4 className="font-bold text-text-primary">{cl.title}</h4>
-                  {cl.description && (
-                    <p className="mt-0.5 text-sm text-text-secondary">{cl.description}</p>
+        return (
+          <div key={kap.id} className="rounded-2xl border border-border bg-white p-5">
+            <div className="flex items-center gap-3">
+              {/* Kapitel-Nummer */}
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${farbe.bg}`}>
+                <span className={`text-sm font-bold ${farbe.color}`}>{kap.nummer}</span>
+              </div>
+
+              {/* Titel + Info */}
+              <div className="min-w-0 flex-1">
+                <h4 className="text-sm font-bold text-text-primary">{kap.titel}</h4>
+                <p className="text-xs text-text-muted">
+                  {items.length === 0 ? (
+                    'Keine Checklisten-Punkte'
+                  ) : (
+                    <>{done}/{items.length} erledigt</>
                   )}
-                </div>
-                {/* Progress */}
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-medium text-text-muted">
-                    {doneCount}/{items.length}
-                  </span>
+                </p>
+              </div>
+
+              {/* Fortschrittsbalken */}
+              {items.length > 0 && (
+                <div className="flex items-center gap-2">
                   <div className="h-2 w-24 overflow-hidden rounded-full bg-gray-100">
                     <div
-                      className={`h-full rounded-full transition-all ${progress === 100 ? 'bg-green-500' : progress > 0 ? 'bg-primary-600' : 'bg-gray-300'}`}
-                      style={{ width: `${progress}%` }}
+                      className={`h-full rounded-full transition-all ${percent === 100 ? 'bg-green-500' : percent > 0 ? farbe.accent : 'bg-gray-300'}`}
+                      style={{ width: `${percent}%` }}
                     />
                   </div>
-                  <span className="text-sm font-medium text-text-secondary">{progress}%</span>
-                </div>
-              </button>
-
-              {/* Items (expandiert) — klickbar für Status-Toggle */}
-              {isExpanded && (
-                <div className="border-t border-border px-5 pb-5 pt-3">
-                  <div className="space-y-1.5">
-                    {items.map(item => (
-                      <button
-                        key={item.id}
-                        onClick={() => toggleItem(cl, item.id)}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
-                          item.status === 'done'
-                            ? 'bg-green-50'
-                            : item.status === 'skipped'
-                            ? 'bg-gray-50'
-                            : 'hover:bg-surface-secondary'
-                        }`}
-                      >
-                        {item.status === 'done' ? (
-                          <CheckCircle2 className="h-5 w-5 shrink-0 text-green-500" />
-                        ) : item.status === 'skipped' ? (
-                          <MinusCircle className="h-5 w-5 shrink-0 text-gray-400" />
-                        ) : (
-                          <Circle className="h-5 w-5 shrink-0 text-text-muted" />
-                        )}
-                        <span
-                          className={`flex-1 text-sm ${
-                            item.status === 'done'
-                              ? 'text-green-700 line-through'
-                              : item.status === 'skipped'
-                              ? 'text-gray-400 line-through'
-                              : 'text-text-primary'
-                          }`}
-                        >
-                          {item.text}
-                        </span>
-                        {item.completed_at && (
-                          <span className="flex items-center gap-1 text-xs text-text-muted">
-                            <Clock className="h-3 w-3" />
-                            {new Date(item.completed_at).toLocaleString('de-DE', {
-                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                            })}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-3 text-xs text-text-muted">
-                    Klick: Offen → Erledigt → Übersprungen → Offen
-                  </p>
+                  <span className={`w-10 text-right text-sm font-bold ${percent === 100 ? 'text-green-600' : 'text-text-primary'}`}>
+                    {percent}%
+                  </span>
                 </div>
               )}
             </div>
-          )
-        })
-      )}
+
+            {/* Items-Vorschau (max 3 offene) */}
+            {items.length > 0 && (
+              <div className="mt-3 ml-11 space-y-1">
+                {items.filter(i => i.status === 'open').slice(0, 3).map(item => (
+                  <div key={item.id} className="flex items-center gap-2 text-sm text-text-secondary">
+                    <Circle className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                    <span className="line-clamp-1">{item.text}</span>
+                  </div>
+                ))}
+                {items.filter(i => i.status === 'open').length > 3 && (
+                  <p className="text-xs text-text-muted">
+                    + {items.filter(i => i.status === 'open').length - 3} weitere offene Punkte
+                  </p>
+                )}
+                {items.filter(i => i.status === 'open').length === 0 && percent === 100 && (
+                  <div className="flex items-center gap-2 text-sm text-green-600">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Alle Punkte abgeschlossen
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Hinweis */}
+      <div className="flex items-start gap-2 rounded-xl bg-surface-secondary/50 px-4 py-3">
+        <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
+        <p className="text-xs text-text-muted">
+          Checklisten-Punkte können direkt im <strong>Krisenhandbuch</strong>-Tab abgehakt und mit Notizen versehen werden.
+        </p>
+      </div>
     </div>
   )
 }

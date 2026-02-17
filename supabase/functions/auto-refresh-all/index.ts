@@ -412,6 +412,87 @@ async function refreshRiskAnalysisForDistrict(supabase: any, district: any): Pro
   return newProfile.risk_score as number
 }
 
+// ─── Saisonale Severity-Anpassung ────────────────────
+
+/**
+ * Saisonale Faktoren pro Szenario-Typ.
+ * Jeder Monat (0=Jan … 11=Dez) hat einen Multiplikator.
+ * 1.0 = durchschnittliches Risiko, <1.0 = geringer, >1.0 = erhöht.
+ * Basis-Severity (aus default-scenarios.ts) × Faktor = saisonale Severity.
+ */
+const SEASONAL_FACTORS: Record<string, number[]> = {
+  // Naturkatastrophen – stark saisonabhängig
+  Starkregen:  [0.4, 0.4, 0.6, 0.8, 1.0, 1.2, 1.3, 1.3, 1.0, 0.7, 0.5, 0.4],
+  Sturm:       [1.2, 1.1, 1.0, 0.7, 0.6, 0.5, 0.6, 0.6, 0.8, 1.0, 1.1, 1.2],
+  Hitzewelle:  [0.1, 0.1, 0.2, 0.3, 0.6, 1.0, 1.3, 1.3, 0.8, 0.3, 0.1, 0.1],
+  Kältewelle:  [1.3, 1.2, 0.8, 0.3, 0.1, 0.0, 0.0, 0.0, 0.1, 0.3, 0.8, 1.3],
+  Waldbrand:   [0.1, 0.1, 0.2, 0.5, 0.7, 1.0, 1.3, 1.3, 0.8, 0.4, 0.2, 0.1],
+  // Bedrohungen – kaum/nicht saisonabhängig
+  Amoklauf:    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  CBRN:        [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  Cyberangriff:[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  Krieg:       [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  Pandemie:    [1.2, 1.1, 1.0, 0.8, 0.7, 0.6, 0.6, 0.7, 0.8, 1.0, 1.1, 1.2],
+  Sabotage:    [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  Stromausfall:[1.2, 1.1, 0.9, 0.8, 0.8, 0.9, 1.0, 1.0, 0.9, 0.9, 1.0, 1.2],
+  Terroranschlag:[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+}
+
+/** Basis-Severity pro Szenario-Typ (= Referenzwert aus default-scenarios.ts) */
+const BASE_SEVERITY: Record<string, number> = {
+  Starkregen: 65,
+  Sturm: 65,
+  Hitzewelle: 55,
+  Kältewelle: 55,
+  Waldbrand: 70,
+  Amoklauf: 85,
+  CBRN: 80,
+  Cyberangriff: 70,
+  Krieg: 90,
+  Pandemie: 70,
+  Sabotage: 80,
+  Stromausfall: 75,
+  Terroranschlag: 85,
+}
+
+// deno-lint-ignore no-explicit-any
+async function refreshSeasonalSeverity(supabase: any, districtId: string): Promise<number> {
+  const month = new Date().getMonth() // 0-11
+
+  // Alle Szenarien des Landkreises laden
+  const { data: scenarios } = await supabase
+    .from('scenarios')
+    .select('id, type, severity')
+    .eq('district_id', districtId)
+
+  if (!scenarios || scenarios.length === 0) return 0
+
+  let updated = 0
+
+  for (const scenario of scenarios) {
+    const typ = scenario.type as string | null
+    if (!typ) continue
+
+    const factors = SEASONAL_FACTORS[typ]
+    const baseSev = BASE_SEVERITY[typ]
+    if (!factors || baseSev === undefined) continue
+
+    const factor = factors[month]
+    const newSeverity = Math.min(100, Math.max(5, Math.round(baseSev * factor)))
+
+    // Nur updaten wenn sich etwas geändert hat
+    if (newSeverity !== scenario.severity) {
+      await supabase
+        .from('scenarios')
+        .update({ severity: newSeverity })
+        .eq('id', scenario.id)
+      updated++
+    }
+  }
+
+  return updated
+}
+
 // ─── Edge Function Handler ──────────────────────────
 
 Deno.serve(async (req) => {
@@ -449,34 +530,52 @@ Deno.serve(async (req) => {
         riskScore: null,
       }
 
+      // Jeder Step in eigenem try/catch – damit z.B. ein KI-Rate-Limit
+      // die saisonale Severity-Anpassung nicht verhindert
+
+      // 1. Warnungen abrufen
       try {
-        // 1. Warnungen abrufen
         console.log(`[${district.name}] Warnungen abrufen...`)
         result.warningsCount = await refreshWarningsForDistrict(supabase, district)
         console.log(`[${district.name}] ${result.warningsCount} Warnungen verarbeitet`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+        console.error(`[${district.name}] Warnungen-Fehler:`, msg)
+        result.error = msg
+        errors.push(`${district.name}: ${msg}`)
+      }
 
-        // 2. KI-Risikoanalyse
+      // 2. KI-Risikoanalyse
+      try {
         console.log(`[${district.name}] KI-Risikoanalyse starten...`)
         result.riskScore = await refreshRiskAnalysisForDistrict(supabase, district)
         console.log(`[${district.name}] Risiko-Score: ${result.riskScore}/100`)
-
-        // 3. last_auto_refresh Timestamp updaten
-        await supabase
-          .from('districts')
-          .update({ last_auto_refresh: new Date().toISOString() })
-          .eq('id', district.id)
-
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
-        console.error(`[${district.name}] Fehler:`, msg)
+        console.error(`[${district.name}] KI-Risiko-Fehler:`, msg)
         result.error = msg
         errors.push(`${district.name}: ${msg}`)
+      }
 
-        // Trotz Fehler: last_auto_refresh updaten (damit wir wissen, dass ein Versuch stattfand)
+      // 3. Saisonale Severity-Anpassung der Szenarien (IMMER ausführen!)
+      try {
+        console.log(`[${district.name}] Saisonale Severity-Anpassung...`)
+        const severityUpdates = await refreshSeasonalSeverity(supabase, district.id)
+        console.log(`[${district.name}] ${severityUpdates} Szenarien-Severity aktualisiert`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unbekannter Fehler'
+        console.error(`[${district.name}] Severity-Fehler:`, msg)
+        errors.push(`${district.name} (Severity): ${msg}`)
+      }
+
+      // 4. last_auto_refresh Timestamp updaten
+      try {
         await supabase
           .from('districts')
           .update({ last_auto_refresh: new Date().toISOString() })
           .eq('id', district.id)
+      } catch {
+        // Non-critical
       }
 
       results.push(result)

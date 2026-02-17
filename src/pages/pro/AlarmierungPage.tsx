@@ -194,7 +194,7 @@ export default function AlarmierungPage() {
       <PageHeader
         title="Alarmzentrale"
         description="Alarme auslösen, verfolgen und Einsatzkräfte koordinieren."
-        badge="Säule 4"
+
         actions={
           <button
             onClick={() => setShowAlarmModal(true)}

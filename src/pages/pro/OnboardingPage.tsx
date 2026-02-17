@@ -8,6 +8,8 @@ import {
   ShieldAlert,
   Flame,
   Landmark,
+  Package,
+  BookOpen,
   CheckCircle2,
   Loader2,
   ArrowRight,
@@ -27,6 +29,8 @@ interface LoadProgress {
   kritis: { count: number; done: boolean }
   risiken: { count: number; done: boolean }
   szenarien: { count: number; done: boolean }
+  inventar: { count: number; done: boolean }
+  handbuecher: { count: number; total: number; done: boolean }
 }
 
 export default function OnboardingPage() {
@@ -42,6 +46,8 @@ export default function OnboardingPage() {
     kritis: { count: 0, done: false },
     risiken: { count: 0, done: false },
     szenarien: { count: 0, done: false },
+    inventar: { count: 0, done: false },
+    handbuecher: { count: 0, total: 0, done: false },
   })
 
   const filtered = query.length >= 2
@@ -208,9 +214,10 @@ export default function OnboardingPage() {
         if (cancelledRef.current) return
         setProgress((p) => ({ ...p, risiken: { count: p.risiken.count || 8, done: true } }))
 
-        // Real: 7 Pflicht-Szenarien anlegen
+        // Real: 13 Standard-Szenarien anlegen
         setProgress((p) => ({ ...p, szenarien: { count: 0, done: false } }))
         let szenarien_count = 0
+        const createdScenarioIds: string[] = []
 
         try {
           for (const template of DEFAULT_SCENARIOS) {
@@ -227,6 +234,20 @@ export default function OnboardingPage() {
                 is_ai_generated: false,
                 is_edited: false,
                 is_default: true,
+                // Inventar als Mini-Handbook einspeisen (InventarTab liest handbook.inventar)
+                // pro_10k_einwohner → empfohlene_menge (absolut, skaliert auf Einwohnerzahl)
+                // Wird später durch vollständiges KI-Handbook überschrieben
+                handbook: template.inventar ? {
+                  inventar: template.inventar.map(item => ({
+                    kategorie: item.kategorie,
+                    empfohlene_menge: Math.ceil(item.pro_10k_einwohner * (selectedDistrict!.population / 10000)),
+                    einheit: item.einheit,
+                    begruendung: item.begruendung,
+                    bereich: item.bereich,
+                    prioritaet: item.prioritaet,
+                  })),
+                  generated_at: new Date().toISOString(),
+                } : null,
               })
               .select('id')
               .single()
@@ -237,6 +258,7 @@ export default function OnboardingPage() {
             }
 
             if (scenario) {
+              createdScenarioIds.push(scenario.id)
               await supabase.from('scenario_phases').insert(
                 template.phases.map((p, i) => ({
                   scenario_id: scenario.id,
@@ -258,7 +280,118 @@ export default function OnboardingPage() {
         }
 
         if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, szenarien: { count: szenarien_count || 7, done: true } }))
+        setProgress((p) => ({ ...p, szenarien: { count: szenarien_count || 13, done: true } }))
+
+        // Konsolidierte Inventar-Items automatisch anlegen
+        setProgress((p) => ({ ...p, inventar: { count: 0, done: false } }))
+        try {
+          // Alle Inventar-Empfehlungen aus allen Szenarien konsolidieren (Maximum pro Kategorie)
+          // pro_10k_einwohner → target_quantity (absolut, skaliert auf Einwohnerzahl)
+          const populationFactor = selectedDistrict!.population / 10000
+          const categoryMap = new Map<string, { kategorie: string; target: number; unit: string }>()
+          for (const template of DEFAULT_SCENARIOS) {
+            if (!template.inventar) continue
+            for (const item of template.inventar) {
+              const key = item.kategorie.toLowerCase().trim()
+              const scaledAmount = Math.ceil(item.pro_10k_einwohner * populationFactor)
+              const existing = categoryMap.get(key)
+              if (!existing || scaledAmount > existing.target) {
+                categoryMap.set(key, { kategorie: item.kategorie, target: scaledAmount, unit: item.einheit })
+              }
+            }
+          }
+
+          const inventoryInserts = Array.from(categoryMap.values()).map((val) => ({
+            district_id: districtId,
+            category: val.kategorie,
+            target_quantity: val.target,
+            current_quantity: 0,
+            unit: val.unit,
+          }))
+
+          if (inventoryInserts.length > 0) {
+            const { error: invError } = await supabase.from('inventory_items').insert(inventoryInserts)
+            if (invError) console.warn('Inventar-Auto-Import Warnung:', invError.message)
+          }
+
+          if (!cancelledRef.current) {
+            setProgress((p) => ({ ...p, inventar: { count: categoryMap.size, done: true } }))
+          }
+        } catch (invErr) {
+          console.warn('Inventar-Import Fehler (nicht kritisch):', invErr)
+          if (!cancelledRef.current) {
+            setProgress((p) => ({ ...p, inventar: { count: 0, done: true } }))
+          }
+        }
+
+        if (cancelledRef.current) return
+
+        // KI-Krisenhandbücher für alle Szenarien generieren (Batches von 3)
+        // + Severity-Score aus KI-Risikobewertung ableiten
+        if (accessToken && createdScenarioIds.length > 0) {
+          setProgress((p) => ({ ...p, handbuecher: { count: 0, total: createdScenarioIds.length, done: false } }))
+          let handbuchCount = 0
+          const BATCH_SIZE = 3
+
+          // Severity aus KI-Risikobewertung berechnen
+          const wahrscheinlichkeitScore: Record<string, number> = { niedrig: 1, mittel: 2, hoch: 3, sehr_hoch: 4 }
+          const schadensausmassScore: Record<string, number> = { gering: 1, mittel: 2, erheblich: 3, katastrophal: 4 }
+
+          for (let i = 0; i < createdScenarioIds.length; i += BATCH_SIZE) {
+            if (cancelledRef.current) return
+
+            const batch = createdScenarioIds.slice(i, i + BATCH_SIZE)
+            const batchPromises = batch.map(async (scenarioId) => {
+              try {
+                const response = await fetch(`${SUPABASE_URL}/functions/v1/ai-enrich-scenario`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${accessToken}`,
+                    apikey: SUPABASE_ANON_KEY,
+                  },
+                  body: JSON.stringify({ scenarioId }),
+                })
+                const result = await response.json()
+                if (result.success) {
+                  handbuchCount++
+                  if (!cancelledRef.current) {
+                    setProgress((p) => ({ ...p, handbuecher: { count: handbuchCount, total: createdScenarioIds.length, done: false } }))
+                  }
+
+                  // Severity aus KI-Risikobewertung ableiten und DB updaten
+                  try {
+                    const risiko = result.scenario?.handbook?.risikobewertung
+                    if (risiko?.eintrittswahrscheinlichkeit && risiko?.schadensausmass) {
+                      const w = wahrscheinlichkeitScore[risiko.eintrittswahrscheinlichkeit] ?? 2
+                      const s = schadensausmassScore[risiko.schadensausmass] ?? 2
+                      // Severity: (w + s) / 8 * 100 → Bereich 25-100
+                      const kiSeverity = Math.round(((w + s) / 8) * 100)
+                      await supabase
+                        .from('scenarios')
+                        .update({ severity: kiSeverity })
+                        .eq('id', scenarioId)
+                    }
+                  } catch (sevErr) {
+                    console.warn('Severity-Update Fehler (nicht kritisch):', sevErr)
+                  }
+                } else {
+                  console.warn('Handbuch-Generierung Warnung:', result.error)
+                }
+              } catch (err) {
+                console.warn('Handbuch-Generierung Fehler (nicht kritisch):', err)
+              }
+            })
+
+            await Promise.all(batchPromises)
+          }
+
+          if (!cancelledRef.current) {
+            setProgress((p) => ({ ...p, handbuecher: { count: handbuchCount, total: createdScenarioIds.length, done: true } }))
+          }
+        }
+
+        if (cancelledRef.current) return
 
         // Navigate to step 3
         timers.push(setTimeout(() => {
@@ -456,7 +589,7 @@ export default function OnboardingPage() {
               </div>
               <h1 className="mb-2 text-2xl font-bold text-text-primary">KI analysiert {selectedDistrict?.name}</h1>
               <p className="mb-8 text-text-secondary">
-                Daten werden automatisch geladen und analysiert. Das dauert nur wenige Sekunden.
+                Daten werden automatisch geladen und KI-Krisenhandbücher generiert. Das kann einige Minuten dauern.
               </p>
 
               <div className="space-y-4">
@@ -486,11 +619,27 @@ export default function OnboardingPage() {
                 />
                 <LoadingItem
                   icon={<Flame className="h-5 w-5" />}
-                  label="Pflicht-Szenarien anlegen"
-                  sublabel="7 Krisenszenarien mit Handlungsplänen"
+                  label="Standard-Szenarien anlegen"
+                  sublabel="13 Krisenszenarien mit Handlungsplänen"
                   count={progress.szenarien.count}
                   done={progress.szenarien.done}
                   unit="Szenarien"
+                />
+                <LoadingItem
+                  icon={<Package className="h-5 w-5" />}
+                  label="Inventar-Kategorien anlegen"
+                  sublabel="Soll-Mengen aus Szenario-Empfehlungen"
+                  count={progress.inventar.count}
+                  done={progress.inventar.done}
+                  unit="Kategorien"
+                />
+                <LoadingItem
+                  icon={<BookOpen className="h-5 w-5" />}
+                  label="KI-Krisenhandbücher generieren"
+                  sublabel={progress.handbuecher.total > 0 ? `${progress.handbuecher.count} von ${progress.handbuecher.total} Handbüchern` : 'Vollständige Krisenhandbücher per KI'}
+                  count={progress.handbuecher.count}
+                  done={progress.handbuecher.done}
+                  unit="Handbücher"
                 />
               </div>
             </div>
@@ -508,11 +657,13 @@ export default function OnboardingPage() {
               </p>
 
               {/* Summary */}
-              <div className="mb-8 grid grid-cols-2 gap-3">
+              <div className="mb-8 grid grid-cols-3 gap-3">
                 <SummaryCard icon={<Building2 className="h-5 w-5" />} value={progress.gemeinden.count} label="Gemeinden" />
                 <SummaryCard icon={<Landmark className="h-5 w-5" />} value={progress.kritis.count} label="KRITIS-Objekte" />
                 <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risikokategorien" />
                 <SummaryCard icon={<Flame className="h-5 w-5" />} value={progress.szenarien.count} label="Szenarien" />
+                <SummaryCard icon={<Package className="h-5 w-5" />} value={progress.inventar.count} label="Inventar" />
+                <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="KI-Handbücher" />
               </div>
 
               <button

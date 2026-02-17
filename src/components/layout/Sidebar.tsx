@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard,
+  Map,
   ShieldAlert,
   Flame,
   Package,
@@ -17,7 +17,7 @@ import {
 import clsx from 'clsx'
 
 const mainNav = [
-  { label: 'Dashboard', href: '/pro', icon: LayoutDashboard, end: true },
+  { label: 'Landkreis', href: '/pro', icon: Map, end: true },
   { label: 'Risikoanalyse', href: '/pro/risikoanalyse', icon: ShieldAlert },
   { label: 'Szenarien', href: '/pro/szenarien', icon: Flame },
   { label: 'Inventar', href: '/pro/inventar', icon: Package },
