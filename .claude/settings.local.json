@@ -53,7 +53,23 @@
       "Bash(npm run dev)",
       "Bash(git status -u)",
       "Bash(git init)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Alarmplaner v1.0 – KI-gestütztes Krisenmanagement-SaaS\n\nVollständige Implementierung mit 15 Pro-Seiten, 12 Edge Functions,\n8-Tab Krisenhandbuch \\(inkl. Inventar-Tab mit Live-Abgleich\\),\n7 Pflicht-Szenarien, NINA/DWD/Pegel-Warnungen, BBK KRITIS-Sektoren,\nAuto-Refresh via n8n, PDF-Export und Dokument-Upload + KI-Analyse.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(npx:*)",
+      "Bash(xargs kill -9)",
+      "Bash(pip3 install:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Krisenhandbuch V2 – editierbares Buch mit 7 Kapiteln + UI-Refactoring\n\nKrisenhandbuch komplett umgebaut: Von read-only Flat-Sections zu einem\neditierbaren Buch mit Kapitelstruktur. Jedes Kapitel hat Fließtext +\ninline Checklisten mit Notizen. Tabs von 7 auf 5 reduziert \\(Krisenstab\nund Inventar sind jetzt Kapitel im Handbuch\\).\n\nNeue Features:\n- ScenarioHandbookV2 mit 7 vordefinierten Kapiteln \\(Risiko, Handlungsplan,\n  Krisenstab, Kommunikation, Eskalation, Prävention, Material\\)\n- V1→V2 Auto-Migration für bestehende Szenarien\n- Buch-Editor: Accordion-Kapitel mit Fließtext-Textarea + Checklisten-Toggle\n- Checklisten-Notizen pro Item \\(klappbar\\)\n- Fortschritt-Tab \\(read-only Übersicht aller Kapitel-Checklisten\\)\n- PDF-Export: Kapitel-basiert mit Inhaltsverzeichnis + farbigen Headern\n- Edge Function generiert direkt V2-Kapitelformat\n- Dashboard: Warnungen mit Filter-Chips + Details-Modal\n- Design-Konsistenz: Säule-Badges entfernt, 2-Col Grid, einheitliches Padding\n- 7 Pflicht-Szenarien mit echten Phasen + Tasks\n- DokumenteTab als eigener Tab in SzenarioDetailPage\n\nGelöschte Dateien \\(in Kapitel integriert\\):\n- KrisenstabTab, InventarTab, KommunikationsplanTab, PraeventionTab,\n  RisikobewertungTab, VerantwortlichkeitenTab, WennDannTab\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "WebFetch(domain:www.ibi-systems.de)",
+      "WebFetch(domain:www.krisenmanagement.de)",
+      "WebFetch(domain:www.garandus.de)",
+      "WebFetch(domain:safereach.com)",
+      "WebFetch(domain:innen.hessen.de)",
+      "WebFetch(domain:www.mi.niedersachsen.de)",
+      "WebFetch(domain:www.revosax.sachsen.de)",
+      "WebFetch(domain:www.bsi.bund.de)",
+      "WebFetch(domain:nica-software.de)",
+      "Bash(source:*)",
+      "WebFetch(domain:www.ernaehrungsvorsorge.de)"
     ]
   }
 }

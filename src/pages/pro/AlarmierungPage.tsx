@@ -1,5 +1,5 @@
-import { Bell, Plus, Send, Users, Clock, CheckCircle2, Loader2, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { Bell, Plus, Send, Users, Clock, CheckCircle2, Loader2, Sparkles, X, MapPin, Building2, ArrowUpRight } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
@@ -8,7 +8,7 @@ import Modal, { FormField, inputClass, selectClass, textareaClass, ConfirmDialog
 import { useDistrict } from '@/hooks/useDistrict'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { supabase } from '@/lib/supabase'
-import type { DbAlert, DbAlertContact, DbScenario } from '@/types/database'
+import type { DbAlert, DbAlertContact, DbScenario, DbMunicipality } from '@/types/database'
 
 const statusConfig = {
   draft: { label: 'Entwurf', variant: 'default' as const },
@@ -41,6 +41,8 @@ export default function AlarmierungPage() {
     target_groups: [] as string[],
     channels: ['E-Mail'] as string[],
     scenario_id: '',
+    scope: 'landkreis' as 'landkreis' | 'gemeinden',
+    municipality_ids: [] as string[],
   })
 
   // Delete + Resolve
@@ -76,6 +78,39 @@ export default function AlarmierungPage() {
     [districtId]
   )
 
+  const { data: municipalities } = useSupabaseQuery<DbMunicipality>(
+    (sb) =>
+      sb
+        .from('municipalities')
+        .select('id, name')
+        .eq('district_id', districtId!)
+        .order('name'),
+    [districtId]
+  )
+
+  // Multi-Select Dropdown State
+  const [showGemeindenDropdown, setShowGemeindenDropdown] = useState(false)
+  const gemeindenDropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (gemeindenDropdownRef.current && !gemeindenDropdownRef.current.contains(e.target as Node)) {
+        setShowGemeindenDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const toggleMunicipality = (id: string) => {
+    setForm((f) => ({
+      ...f,
+      municipality_ids: f.municipality_ids.includes(id)
+        ? f.municipality_ids.filter((x) => x !== id)
+        : [...f.municipality_ids, id],
+    }))
+  }
+
   const toggleGroup = (g: string) => {
     setForm((f) => ({
       ...f,
@@ -94,6 +129,9 @@ export default function AlarmierungPage() {
     if (!form.title.trim() || !districtId) return
     setCreateLoading(true)
     try {
+      const selectedMunicipalityNames = form.scope === 'gemeinden'
+        ? municipalities.filter((m) => form.municipality_ids.includes(m.id)).map((m) => m.name)
+        : []
       const { error: insertError } = await supabase.from('alerts').insert({
         district_id: districtId,
         title: form.title.trim(),
@@ -102,13 +140,17 @@ export default function AlarmierungPage() {
         target_groups: form.target_groups,
         channels: form.channels,
         scenario_id: form.scenario_id || null,
+        scope: form.scope,
+        municipality_ids: form.scope === 'gemeinden' ? form.municipality_ids : [],
+        municipality_names: selectedMunicipalityNames,
         status: 'sent',
         sent_at: new Date().toISOString(),
+        source: 'landkreis',
       })
       if (insertError) throw insertError
       refetch()
       setShowAlarmModal(false)
-      setForm({ title: '', level: 2, message: '', target_groups: [], channels: ['E-Mail'], scenario_id: '' })
+      setForm({ title: '', level: 2, message: '', target_groups: [], channels: ['E-Mail'], scenario_id: '', scope: 'landkreis', municipality_ids: [] })
     } catch (err) {
       console.error('Alarm auslösen fehlgeschlagen:', err)
     } finally {
@@ -136,6 +178,10 @@ export default function AlarmierungPage() {
           scenarioId: form.scenario_id || undefined,
           level: form.level,
           targetGroups: form.target_groups,
+          scope: form.scope,
+          municipalityNames: form.scope === 'gemeinden'
+            ? municipalities.filter((m) => form.municipality_ids.includes(m.id)).map((m) => m.name)
+            : [],
         }),
       })
 
@@ -244,22 +290,45 @@ export default function AlarmierungPage() {
         <div className="space-y-3">
           {alerts.map((alert) => {
             const status = statusConfig[alert.status as keyof typeof statusConfig] || statusConfig.draft
+            const isGemeindeAlert = alert.source === 'gemeinde'
+            const sourceMunicipality = isGemeindeAlert && alert.source_municipality_id
+              ? municipalities.find((m) => m.id === alert.source_municipality_id)
+              : null
             return (
               <div
                 key={alert.id}
-                className="flex items-center gap-4 rounded-2xl border border-border bg-white p-6 transition-shadow hover:shadow-md"
+                className={`flex items-center gap-4 rounded-2xl border p-6 transition-shadow hover:shadow-md ${
+                  isGemeindeAlert
+                    ? 'border-green-200 bg-green-50/30'
+                    : 'border-border bg-white'
+                }`}
               >
                 <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${levelColor[alert.level as keyof typeof levelColor] || levelColor[1]}`}>
-                  <Bell className="h-6 w-6" />
+                  {isGemeindeAlert ? <Building2 className="h-6 w-6" /> : <Bell className="h-6 w-6" />}
                 </div>
                 <div className="flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold text-text-primary">{alert.title}</h3>
                     <Badge variant={status.variant}>{status.label}</Badge>
                     <Badge>Stufe {alert.level}</Badge>
+                    {isGemeindeAlert && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                        <Building2 className="h-3 w-3" />
+                        {sourceMunicipality?.name || 'Gemeinde'}
+                      </span>
+                    )}
+                    {alert.is_escalated && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        <ArrowUpRight className="h-3 w-3" />
+                        Eskaliert
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-text-muted">
                     <span>Zielgruppe: {(alert.target_groups || []).join(', ') || 'Alle'}</span>
+                    {alert.scope === 'gemeinden' && alert.municipality_names?.length > 0
+                      ? <span>📍 {alert.municipality_names.join(', ')}</span>
+                      : <span>📍 Gesamter Landkreis</span>}
                     <span>{alert.sent_at ? new Date(alert.sent_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : new Date(alert.created_at).toLocaleDateString('de-DE')}</span>
                   </div>
                 </div>
@@ -321,6 +390,95 @@ export default function AlarmierungPage() {
               </button>
             ))}
           </div>
+        </FormField>
+
+        <FormField label="Geltungsbereich">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, scope: 'landkreis', municipality_ids: [] })}
+              className={`flex-1 rounded-xl border-2 px-4 py-3 text-center font-semibold transition-colors ${
+                form.scope === 'landkreis'
+                  ? 'border-primary-600 bg-primary-50 text-primary-700'
+                  : 'border-border bg-white text-text-secondary hover:bg-surface-secondary'
+              }`}
+            >
+              <div className="text-sm">🏔️ Gesamter Landkreis</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => setForm({ ...form, scope: 'gemeinden' })}
+              className={`flex-1 rounded-xl border-2 px-4 py-3 text-center font-semibold transition-colors ${
+                form.scope === 'gemeinden'
+                  ? 'border-primary-600 bg-primary-50 text-primary-700'
+                  : 'border-border bg-white text-text-secondary hover:bg-surface-secondary'
+              }`}
+            >
+              <div className="text-sm">📍 Einzelne Gemeinde(n)</div>
+            </button>
+          </div>
+
+          {form.scope === 'gemeinden' && (
+            <div ref={gemeindenDropdownRef} className="relative mt-3">
+              {/* Selected badges + clickable input */}
+              <div
+                onClick={() => setShowGemeindenDropdown((v) => !v)}
+                className="flex min-h-[42px] cursor-pointer flex-wrap items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-2 transition-colors hover:border-primary-300"
+              >
+                {form.municipality_ids.length === 0 ? (
+                  <span className="text-sm text-text-muted">Gemeinden auswählen…</span>
+                ) : (
+                  form.municipality_ids.map((mid) => {
+                    const mun = municipalities.find((m) => m.id === mid)
+                    if (!mun) return null
+                    return (
+                      <span
+                        key={mid}
+                        className="flex items-center gap-1 rounded-full bg-primary-100 px-2.5 py-1 text-xs font-medium text-primary-700"
+                      >
+                        {mun.name}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleMunicipality(mid)
+                          }}
+                          className="ml-0.5 rounded-full p-0.5 transition-colors hover:bg-primary-200"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* Dropdown with checkboxes */}
+              {showGemeindenDropdown && (
+                <div className="absolute left-0 right-0 z-20 mt-1 max-h-52 overflow-auto rounded-xl border border-border bg-white shadow-lg">
+                  {municipalities.length === 0 ? (
+                    <div className="p-3 text-center text-sm text-text-muted">Keine Gemeinden vorhanden</div>
+                  ) : (
+                    municipalities.map((m) => (
+                      <label
+                        key={m.id}
+                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-surface-secondary"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={form.municipality_ids.includes(m.id)}
+                          onChange={() => toggleMunicipality(m.id)}
+                          className="h-4 w-4 rounded border-border text-primary-600 focus:ring-primary-500"
+                        />
+                        <MapPin className="h-3.5 w-3.5 text-text-muted" />
+                        {m.name}
+                      </label>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </FormField>
 
         <FormField label="Nachricht">

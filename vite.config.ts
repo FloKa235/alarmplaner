@@ -18,6 +18,7 @@ export default defineConfig({
           'vendor-supabase': ['@supabase/supabase-js'],
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-jspdf': ['jspdf', 'jspdf-autotable'],
+          'vendor-tiptap': ['@tiptap/react', '@tiptap/starter-kit', '@tiptap/extension-link', '@tiptap/extension-placeholder'],
         },
       },
     },

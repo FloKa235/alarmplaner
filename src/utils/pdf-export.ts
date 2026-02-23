@@ -1,7 +1,10 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { DbScenario, DbScenarioPhase, ScenarioHandbook, ScenarioHandbookV2 } from '@/types/database'
-import { isHandbookV2 } from '@/types/database'
+import type { DbScenario, DbScenarioPhase, ScenarioHandbook, ScenarioHandbookV2, ScenarioHandbookV3 } from '@/types/database'
+import { isHandbookV2, isHandbookV3 } from '@/types/database'
+import { getKapitelFarbePDF } from '@/data/kapitel-config'
+import { isHtml, renderHtmlToPDF } from '@/utils/html-to-pdf-text'
+import type { PDFRenderContext } from '@/utils/html-to-pdf-text'
 
 // Brand Colors
 const PRIMARY = [37, 99, 235] as const     // primary-600 (#2563EB)
@@ -11,16 +14,6 @@ const TEXT_LIGHT = [156, 163, 175] as const // gray-400
 const BG_LIGHT = [249, 250, 251] as const  // gray-50
 const WHITE = [255, 255, 255] as const
 
-// Kapitel-Farben (RGB) – passend zum Frontend
-const KAPITEL_FARBEN: Record<number, [number, number, number]> = {
-  1: [220, 38, 38],    // red-600
-  2: [37, 99, 235],    // blue-600
-  3: [22, 163, 74],    // green-600
-  4: [217, 119, 6],    // amber-600
-  5: [234, 88, 12],    // orange-600
-  6: [147, 51, 234],   // purple-600
-  7: [13, 148, 136],   // teal-600
-}
 
 /**
  * Generiert ein professionelles PDF-Krisenhandbuch für ein Szenario.
@@ -301,10 +294,13 @@ export function exportScenarioPDF(
   }
 
   // ─── Krisenhandbuch ──────────────────────────────────
-  const rawHandbook = scenario.handbook as ScenarioHandbook | ScenarioHandbookV2 | null
+  const rawHandbook = scenario.handbook as ScenarioHandbook | ScenarioHandbookV2 | ScenarioHandbookV3 | null
   if (rawHandbook) {
-    if (isHandbookV2(rawHandbook)) {
-      // ═══ V2: Kapitel-basiertes Krisenhandbuch ═══
+    if (isHandbookV3(rawHandbook)) {
+      // ═══ V3: 12 BSI/BBK-Kapitel ═══
+      renderV2Handbook(rawHandbook) // V2 renderer works for V3 too (same kapitel structure)
+    } else if (isHandbookV2(rawHandbook)) {
+      // ═══ V2: 7 Kapitel (legacy) ═══
       renderV2Handbook(rawHandbook)
     } else {
       // ═══ V1: Legacy flat sections (Fallback) ═══
@@ -326,7 +322,7 @@ export function exportScenarioPDF(
   // ═══════════════════════════════════════════════════════
   // V2 Kapitel-basiertes Rendering
   // ═══════════════════════════════════════════════════════
-  function renderV2Handbook(handbook: ScenarioHandbookV2) {
+  function renderV2Handbook(handbook: ScenarioHandbookV2 | ScenarioHandbookV3) {
     // Titelseite für Krisenhandbuch
     doc.addPage()
     y = 40
@@ -367,7 +363,7 @@ export function exportScenarioPDF(
     addSubHeader('Inhaltsverzeichnis')
     handbook.kapitel.forEach(kap => {
       checkPageBreak(8)
-      const kapColor = KAPITEL_FARBEN[kap.nummer] || [107, 114, 128]
+      const kapColor = getKapitelFarbePDF(kap.nummer)
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(10)
       doc.setTextColor(kapColor[0], kapColor[1], kapColor[2])
@@ -392,7 +388,7 @@ export function exportScenarioPDF(
 
     // Kapitel rendern
     handbook.kapitel.forEach(kap => {
-      const kapColor = KAPITEL_FARBEN[kap.nummer] || [107, 114, 128]
+      const kapColor = getKapitelFarbePDF(kap.nummer)
       const kapColorTuple = kapColor as unknown as readonly [number, number, number]
 
       // Neues Kapitel auf neuer Seite
@@ -422,7 +418,20 @@ export function exportScenarioPDF(
 
       // Fließtext (Inhalt)
       if (kap.inhalt && kap.inhalt.trim().length > 0) {
-        addMultilineParagraph(kap.inhalt)
+        if (isHtml(kap.inhalt)) {
+          // V3 HTML-Content (aus TiptapEditor / Edge Function)
+          const pdfCtx: PDFRenderContext = {
+            addSubHeader,
+            addParagraph,
+            addBulletList,
+            checkPageBreak,
+            addY: (delta: number) => { y += delta },
+          }
+          renderHtmlToPDF(kap.inhalt, pdfCtx)
+        } else {
+          // Legacy Markdown-ähnlicher Text (V2 / migrierte Daten)
+          addMultilineParagraph(kap.inhalt)
+        }
         y += 4
       } else {
         doc.setFont('helvetica', 'italic')

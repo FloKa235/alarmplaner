@@ -1,4 +1,4 @@
-import { Plus, Search, Mail, Phone, Users, Loader2 } from 'lucide-react'
+import { Plus, Search, Mail, Phone, Smartphone, Users, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '@/components/ui/PageHeader'
@@ -9,7 +9,7 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { supabase } from '@/lib/supabase'
 import type { DbAlertContact } from '@/types/database'
 
-const emptyForm = { name: '', organization: '', role: '', email: '', phone: '', groups: [] as string[] }
+const emptyForm = { name: '', organization: '', role: '', email: '', phone: '', mobile_phone: '', groups: [] as string[] }
 const groupOptions = ['Feuerwehr', 'Polizei', 'THW', 'Rettungsdienst', 'Verwaltung']
 
 export default function KontaktePage() {
@@ -55,6 +55,7 @@ export default function KontaktePage() {
       role: c.role || '',
       email: c.email || '',
       phone: c.phone || '',
+      mobile_phone: c.mobile_phone || '',
       groups: c.groups || [],
     })
     setShowModal(true)
@@ -70,6 +71,7 @@ export default function KontaktePage() {
         role: form.role.trim() || null,
         email: form.email.trim() || null,
         phone: form.phone.trim() || null,
+        mobile_phone: form.mobile_phone.trim() || null,
         groups: form.groups,
       }
 
@@ -195,12 +197,33 @@ export default function KontaktePage() {
                     </td>
                     <td className="px-5 py-3.5 text-sm text-text-secondary">{contact.organization || '–'}</td>
                     <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3 text-xs text-text-muted">
+                      <div className="flex flex-col gap-1 text-xs">
                         {contact.email && (
-                          <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{contact.email}</span>
+                          <a
+                            href={`mailto:${contact.email}`}
+                            className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Mail className="h-3 w-3" />{contact.email}
+                          </a>
                         )}
                         {contact.phone && (
-                          <span className="hidden items-center gap-1 lg:flex"><Phone className="h-3 w-3" />{contact.phone}</span>
+                          <a
+                            href={`tel:${contact.phone}`}
+                            className="inline-flex items-center gap-1 text-text-muted hover:text-primary-600 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Phone className="h-3 w-3" />{contact.phone}
+                          </a>
+                        )}
+                        {contact.mobile_phone && (
+                          <a
+                            href={`tel:${contact.mobile_phone}`}
+                            className="inline-flex items-center gap-1 text-text-muted hover:text-primary-600 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Smartphone className="h-3 w-3" />{contact.mobile_phone}
+                          </a>
                         )}
                       </div>
                     </td>
@@ -269,12 +292,22 @@ export default function KontaktePage() {
           />
         </FormField>
 
-        <FormField label="Telefon">
+        <FormField label="Festnetz">
           <input
             type="tel"
             className={inputClass}
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            placeholder="+49 3946 123456"
+          />
+        </FormField>
+
+        <FormField label="Handy">
+          <input
+            type="tel"
+            className={inputClass}
+            value={form.mobile_phone}
+            onChange={(e) => setForm({ ...form, mobile_phone: e.target.value })}
             placeholder="+49 170 1234567"
           />
         </FormField>

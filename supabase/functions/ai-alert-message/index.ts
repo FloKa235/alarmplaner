@@ -19,7 +19,7 @@ Deno.serve(async (req) => {
     const user = await getAuthenticatedUser(req)
 
     // 2. Input parsen
-    const { districtId, scenarioId, level, targetGroups } = await req.json()
+    const { districtId, scenarioId, level, targetGroups, scope, municipalityNames } = await req.json()
     if (!districtId) {
       throw new Error('districtId ist erforderlich.')
     }
@@ -62,6 +62,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 5b. Municipality-Kontext (optional)
+    let municipalityInfo = ''
+    if (scope === 'gemeinden' && Array.isArray(municipalityNames) && municipalityNames.length > 0) {
+      municipalityInfo = `
+## Geografischer Geltungsbereich
+- Nur folgende Gemeinden betroffen: ${municipalityNames.join(', ')}
+- Alarm gilt NICHT für den gesamten Landkreis`
+    }
+
     // 6. Prompt bauen
     const levelLabels: Record<number, string> = {
       1: 'Stufe 1 – Vorwarnung',
@@ -81,6 +90,7 @@ Du formulierst prägnante, klare und professionelle Alarmnachrichten für Einsat
 - Alarmstufe: ${levelLabels[level as number] || `Stufe ${level}`}
 - Zielgruppen: ${(targetGroups as string[] || []).join(', ') || 'Alle Einsatzkräfte'}
 ${scenarioInfo}
+${municipalityInfo}
 
 ## Anforderungen an die Nachricht
 1. Maximal 5-8 Sätze
@@ -89,6 +99,7 @@ ${scenarioInfo}
 4. Alarmstufe und Dringlichkeit klar kommunizieren
 5. Wenn ein Szenario angegeben ist, darauf Bezug nehmen
 6. Konkrete Handlungsanweisungen
+7. Wenn ein geografischer Geltungsbereich angegeben ist, die betroffenen Gemeinden klar benennen
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
 {
@@ -103,7 +114,9 @@ Antworte AUSSCHLIESSLICH im folgenden JSON-Format:
         { role: 'system', content: systemPrompt },
         {
           role: 'user',
-          content: `Erstelle jetzt eine Alarmnachricht für Stufe ${level} im Landkreis ${district.name} als JSON.`,
+          content: scope === 'gemeinden' && Array.isArray(municipalityNames) && municipalityNames.length > 0
+            ? `Erstelle jetzt eine Alarmnachricht für Stufe ${level} im Landkreis ${district.name}, betroffen sind die Gemeinden: ${municipalityNames.join(', ')}. Antworte als JSON.`
+            : `Erstelle jetzt eine Alarmnachricht für Stufe ${level} im Landkreis ${district.name} als JSON.`,
         },
       ],
       { max_tokens: 1024 }

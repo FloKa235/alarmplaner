@@ -1,82 +1,199 @@
-import { useState, useMemo, useRef } from 'react'
+/**
+ * SzenarioDetailPage — 7-Tab-Modell
+ *
+ * Tabs: Übersicht · Vorwarnung · Akuter Vorfall · Katastrophe · Checklisten · Inventar · Handbuch & Dokumente
+ * Eskalationsstufen werden in meta.eskalationsstufen (JSONB) gespeichert.
+ */
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  Flame, Sparkles, Edit3, Download,
-  Loader2, Upload, CheckCircle2, X, FileText,
-  ClipboardList, LayoutDashboard, BookOpen,
+  Flame, Sparkles, Save, ArrowLeft,
+  Loader2, FileText, Eye, ClipboardCheck, Package,
 } from 'lucide-react'
-import Modal, { FormField, ModalFooter, inputClass, selectClass, textareaClass } from '@/components/ui/Modal'
+import ErrorBanner from '@/components/ui/ErrorBanner'
 import { useSupabaseSingle, useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { useDistrict } from '@/hooks/useDistrict'
 import { useHandbookEnrichment } from '@/hooks/useAI'
 import { supabase } from '@/lib/supabase'
 import { exportScenarioPDF } from '@/utils/pdf-export'
-import { isHandbookV2 } from '@/types/database'
-import type { DbScenario, DbScenarioPhase, ScenarioHandbook, ScenarioHandbookV2 } from '@/types/database'
-import { migrateV1toV2 } from '@/utils/handbook-migration'
+import { isHandbookV2, isHandbookV3 } from '@/types/database'
+import type {
+  DbScenario, DbScenarioPhase, DbInventoryItem, DbAlertContact,
+  DbChecklist, DbInventoryScenarioLink,
+  ScenarioHandbook, ScenarioHandbookV3, SzenarioMeta,
+  EskalationsStufe, AlarmkettenSchritt,
+} from '@/types/database'
+import { migrateV1toV2, migrateV2toV3 } from '@/utils/handbook-migration'
 
-// Tab-Komponenten
-import HandlungsplanTab from './szenario-detail/HandlungsplanTab'
-import type { PhaseForm } from './szenario-detail/HandlungsplanTab'
-import UebersichtTab from './szenario-detail/UebersichtTab'
-import KrisenhandbuchTab from './szenario-detail/KrisenhandbuchTab'
-import ChecklistenTab from './szenario-detail/ChecklistenTab'
-import DokumenteTab from './szenario-detail/DokumenteTab'
+// Helpers
+import { extractKrisenstabRollen } from './szenario-detail/helpers/handbook-extract'
+import { calculateReadiness, type TabKey } from './szenario-detail/helpers/readiness-checks'
+import { migrateToEskalationsstufen, createDefaultEskalationsstufen, ESKALATION_COLORS } from './szenario-detail/helpers/eskalation-defaults'
 
-// ─── Tab-Config (5 Tabs) ───────────────────────────────
-type TabKey = 'uebersicht' | 'krisenhandbuch' | 'handlungsplan' | 'checklisten' | 'dokumente'
+// Components
+import UebersichtSection from './szenario-detail/UebersichtSection'
+import StufeHeaderSection from './szenario-detail/StufeHeaderSection'
+import HandlungsplanSection from './szenario-detail/HandlungsplanSection'
+import AlarmierungSection from './szenario-detail/AlarmierungSection'
+import KommunikationSection from './szenario-detail/KommunikationSection'
+import RessourcenSection from './szenario-detail/RessourcenSection'
+import HandbuchDokumenteSection from './szenario-detail/HandbuchDokumenteSection'
+import ChecklistenSection from './szenario-detail/ChecklistenSection'
+import InventarSection from './szenario-detail/InventarSection'
 
-const TABS: { key: TabKey; label: string; icon: typeof Flame; needsHandbook: boolean }[] = [
-  { key: 'uebersicht', label: 'Übersicht', icon: LayoutDashboard, needsHandbook: false },
-  { key: 'krisenhandbuch', label: 'Krisenhandbuch', icon: BookOpen, needsHandbook: false },
-  { key: 'handlungsplan', label: 'Handlungsplan', icon: ClipboardList, needsHandbook: false },
-  { key: 'checklisten', label: 'Fortschritt', icon: CheckCircle2, needsHandbook: false },
-  { key: 'dokumente', label: 'Dokumente', icon: FileText, needsHandbook: false },
-]
+// Modals
+import MetadatenModal from './szenario-detail/modals/MetadatenModal'
+import AlarmketteEditModal from './szenario-detail/modals/AlarmketteEditModal'
 
-// ─── Scenario Types ──────────────────────────────────
-const scenarioTypes = [
-  'Starkregen', 'Sturm', 'Hitzewelle', 'Kältewelle', 'Waldbrand',
-  'Amoklauf', 'CBRN', 'Cyberangriff', 'Krieg', 'Pandemie',
-  'Sabotage', 'Stromausfall', 'Terroranschlag',
+// ─── Tab-Config ─────────────────────────────────────
+const TABS: { key: TabKey; label: string; icon?: typeof Flame; stufeNr?: 1 | 2 | 3 }[] = [
+  { key: 'uebersicht', label: 'Übersicht', icon: Eye },
+  { key: 'stufe1', label: 'Vorwarnung', stufeNr: 1 },
+  { key: 'stufe2', label: 'Akuter Vorfall', stufeNr: 2 },
+  { key: 'stufe3', label: 'Katastrophe', stufeNr: 3 },
+  { key: 'checklisten', label: 'Checklisten', icon: ClipboardCheck },
+  { key: 'inventar', label: 'Inventar', icon: Package },
+  { key: 'handbuch', label: 'Handbuch & Dokumente', icon: FileText },
 ]
 
 export default function SzenarioDetailPage() {
   const { id } = useParams()
   const { district } = useDistrict()
   const [activeTab, setActiveTab] = useState<TabKey>('uebersicht')
-  const [editingTab, setEditingTab] = useState<TabKey | null>(null)
 
-  // ─── Data Fetching ─────────────────────────────────
+  // ─── Data Fetching ──────────────────────────────────
   const { data: scenario, loading: scenarioLoading, refetch: refetchScenario } = useSupabaseSingle<DbScenario>(
-    (sb) =>
-      sb
-        .from('scenarios')
-        .select('*')
-        .eq('id', id!)
-        .single(),
+    (sb) => sb.from('scenarios').select('*').eq('id', id!).single(),
     [id]
   )
 
-  const { data: phases, loading: phasesLoading, refetch: refetchPhases } = useSupabaseQuery<DbScenarioPhase>(
-    (sb) =>
-      sb
-        .from('scenario_phases')
-        .select('*')
-        .eq('scenario_id', id!)
-        .order('sort_order'),
+  const { data: phases } = useSupabaseQuery<DbScenarioPhase>(
+    (sb) => sb.from('scenario_phases').select('*').eq('scenario_id', id!).order('sort_order'),
     [id]
   )
 
-  // ─── V1 → V2 Auto-Migration ────────────────────────
-  const handbookV2 = useMemo<ScenarioHandbookV2 | null>(() => {
+  const { data: inventoryItems } = useSupabaseQuery<DbInventoryItem>(
+    (sb) => sb.from('inventory_items').select('*').eq('district_id', district?.id || ''),
+    [district?.id]
+  )
+
+  const { data: alertContacts } = useSupabaseQuery<DbAlertContact>(
+    (sb) => sb.from('alert_contacts').select('*').eq('district_id', district?.id || '').eq('is_active', true),
+    [district?.id]
+  )
+
+  // Vorbereitungs-Checklisten (ExTrass) für dieses Szenario
+  const { data: vorbereitungChecklisten } = useSupabaseQuery<DbChecklist>(
+    (sb) => sb.from('checklists').select('*')
+      .eq('scenario_id', id!).eq('category', 'vorbereitung'),
+    [id]
+  )
+
+  // Szenario-spezifische Inventar-Links (für Readiness)
+  const { data: szenarioInventoryLinks } = useSupabaseQuery<DbInventoryScenarioLink>(
+    (sb) => sb.from('inventory_scenario_links').select('*').eq('scenario_id', id!),
+    [id]
+  )
+
+  // ─── V1 → V2 → V3 Auto-Migration ───────────────────
+  const handbookV3 = useMemo<ScenarioHandbookV3 | null>(() => {
     if (!scenario?.handbook) return null
-    if (isHandbookV2(scenario.handbook)) return scenario.handbook
-    // Auto-migrate V1 → V2
-    return migrateV1toV2(scenario.handbook as ScenarioHandbook, phases)
+    if (isHandbookV3(scenario.handbook)) return scenario.handbook
+    if (isHandbookV2(scenario.handbook)) return migrateV2toV3(scenario.handbook)
+    const v2 = migrateV1toV2(scenario.handbook as ScenarioHandbook, phases)
+    return migrateV2toV3(v2)
   }, [scenario?.handbook, phases])
 
-  // ─── KI-Handbook Enrichment ──────────────────────────
+  // ─── Krisenstab-Rollen ────────────────────────────────
+  const krisenstabRollen = useMemo(
+    () => handbookV3 ? extractKrisenstabRollen(handbookV3) : [],
+    [handbookV3]
+  )
+
+  // ─── Eskalationsstufen State ──────────────────────────
+  const [eskalationsstufen, setEskalationsstufen] = useState<EskalationsStufe[]>([])
+  const [eskalationDirty, setEskalationDirty] = useState(false)
+  const [eskalationSaving, setEskalationSaving] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  // Initialisierung: Aus meta laden oder migrieren
+  useEffect(() => {
+    if (!scenario) return
+    const meta = scenario.meta as SzenarioMeta | null
+
+    if (meta?.eskalationsstufen && meta.eskalationsstufen.length > 0) {
+      setEskalationsstufen(meta.eskalationsstufen)
+    } else if (phases.length > 0 || meta?.sofortmassnahmen?.length || meta?.massnahmenplan?.alarmkette?.length) {
+      setEskalationsstufen(migrateToEskalationsstufen({ meta, phases, scenarioType: scenario.type }))
+    } else {
+      setEskalationsstufen(createDefaultEskalationsstufen(scenario.type))
+    }
+    setEskalationDirty(false)
+  }, [scenario?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleEskalationChange = useCallback((stufen: EskalationsStufe[]) => {
+    setEskalationsstufen(stufen)
+    setEskalationDirty(true)
+  }, [])
+
+  const handleStufeFieldUpdate = useCallback((stufeIdx: number, update: Partial<EskalationsStufe>) => {
+    setEskalationsstufen(prev => prev.map((s, i) => i === stufeIdx ? { ...s, ...update } : s))
+    setEskalationDirty(true)
+  }, [])
+
+  const saveEskalationsstufen = async () => {
+    if (!scenario) return
+    setEskalationSaving(true)
+    setErrorMessage(null)
+    try {
+      const currentMeta = (scenario.meta as unknown as Record<string, unknown>) || {}
+      const updatedMeta = {
+        ...currentMeta,
+        eskalationsstufen,
+      }
+      const { error } = await supabase
+        .from('scenarios')
+        .update({ meta: updatedMeta, is_edited: true })
+        .eq('id', scenario.id)
+      if (error) throw error
+      setEskalationDirty(false)
+      refetchScenario()
+    } catch (err) {
+      console.error('Fehler beim Speichern der Eskalationsstufen:', err)
+      setErrorMessage('Fehler beim Speichern der Eskalationsstufen. Bitte erneut versuchen.')
+    } finally {
+      setEskalationSaving(false)
+    }
+  }
+
+  // ─── Alarmkette Modal (pro Stufe) ─────────────────────
+  const [alarmketteModalStufeIdx, setAlarmketteModalStufeIdx] = useState<number | null>(null)
+
+  const handleAlarmketteSave = async (updatedKette: AlarmkettenSchritt[]) => {
+    if (alarmketteModalStufeIdx === null) return
+    const updated = eskalationsstufen.map((s, i) =>
+      i === alarmketteModalStufeIdx ? { ...s, alarmkette: updatedKette } : s
+    )
+    setEskalationsstufen(updated)
+    setEskalationDirty(true)
+  }
+
+  // ─── Readiness ────────────────────────────────────────
+  const szenarioInventoryItems = useMemo(() => {
+    if (!szenarioInventoryLinks.length) return []
+    return inventoryItems.filter(i => szenarioInventoryLinks.some(l => l.inventory_item_id === i.id))
+  }, [inventoryItems, szenarioInventoryLinks])
+
+  const readiness = useMemo(() => calculateReadiness({
+    eskalationsstufen,
+    krisenstabRollen,
+    alertContacts,
+    inventoryItems,
+    vorbereitungChecklisten,
+    szenarioInventoryItems,
+  }), [eskalationsstufen, krisenstabRollen, alertContacts, inventoryItems, vorbereitungChecklisten, szenarioInventoryItems])
+
+  // ─── KI-Handbook Enrichment ───────────────────────────
   const [uploadedDocId, setUploadedDocId] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
@@ -123,129 +240,44 @@ export default function SzenarioDetailPage() {
       setUploadedFileName(file.name)
     } catch (err) {
       console.error('Dokument-Upload fehlgeschlagen:', err)
+      setErrorMessage('Dokument-Upload fehlgeschlagen. Bitte erneut versuchen.')
     } finally {
       setUploadingDoc(false)
     }
   }
 
-  // ─── Handbook V2 Update (ganzes Handbuch) ──────────────
-  const [handbookSaving, setHandbookSaving] = useState(false)
-
-  const onUpdateHandbook = async (updated: ScenarioHandbookV2) => {
+  // ─── Handbook Update (Checklisten-Toggle, Kapitel-Edit) ──
+  const handleUpdateHandbook = async (updatedHandbook: ScenarioHandbookV3) => {
     if (!scenario) return
-    setHandbookSaving(true)
+    setErrorMessage(null)
     try {
       const { error } = await supabase
         .from('scenarios')
-        .update({ handbook: updated as unknown as Record<string, unknown> })
+        .update({ handbook: updatedHandbook, is_edited: true })
         .eq('id', scenario.id)
       if (error) throw error
       refetchScenario()
     } catch (err) {
-      console.error('Krisenhandbuch speichern fehlgeschlagen:', err)
-    } finally {
-      setHandbookSaving(false)
+      console.error('Fehler beim Speichern des Handbuchs:', err)
+      setErrorMessage('Fehler beim Speichern des Handbuchs. Bitte erneut versuchen.')
     }
   }
 
-  // ─── Phase Save Callback (for HandlungsplanTab) ──────
-  const [phaseSaving, setPhaseSaving] = useState(false)
-
-  const onSavePhases = async (phaseForms: PhaseForm[]) => {
-    if (!scenario) return
-    setPhaseSaving(true)
-    try {
-      // 1) Delete all existing phases
-      const { error: deleteError } = await supabase
-        .from('scenario_phases')
-        .delete()
-        .eq('scenario_id', scenario.id)
-      if (deleteError) throw deleteError
-
-      // 2) Insert new phases with correct sort_order
-      const phaseInserts = phaseForms
-        .filter(p => p.name.trim())
-        .map((p, i) => ({
-          scenario_id: scenario.id,
-          name: p.name.trim(),
-          duration: p.duration.trim() || 'Nicht definiert',
-          sort_order: i,
-          tasks: p.tasks.filter(t => t.trim()),
-        }))
-
-      if (phaseInserts.length > 0) {
-        const { error: insertError } = await supabase
-          .from('scenario_phases')
-          .insert(phaseInserts)
-        if (insertError) throw insertError
-      }
-
-      refetchPhases()
-    } catch (err) {
-      console.error('Fehler beim Speichern der Phasen:', err)
-      alert('Fehler beim Speichern. Bitte erneut versuchen.')
-    } finally {
-      setPhaseSaving(false)
-    }
-  }
-
-  // ─── Metadata Edit Modal ──────────────────────────
-  const [showMetaModal, setShowMetaModal] = useState(false)
-  const [metaSaving, setMetaSaving] = useState(false)
-  const [metaForm, setMetaForm] = useState({
-    title: '',
-    type: '',
-    severity: 50,
-    description: '',
-    affected_population: '',
-  })
-
-  const openMetaModal = () => {
-    if (!scenario) return
-    setMetaForm({
-      title: scenario.title,
-      type: scenario.type,
-      severity: scenario.severity,
-      description: scenario.description || '',
-      affected_population: scenario.affected_population?.toString() || '',
-    })
-    setShowMetaModal(true)
-  }
-
-  const saveMetadata = async () => {
-    if (!scenario) return
-    setMetaSaving(true)
-    try {
-      const { error } = await supabase
-        .from('scenarios')
-        .update({
-          title: metaForm.title.trim(),
-          type: metaForm.type,
-          severity: metaForm.severity,
-          description: metaForm.description.trim() || null,
-          affected_population: metaForm.affected_population ? parseInt(metaForm.affected_population, 10) : null,
-          is_edited: true,
-        })
-        .eq('id', scenario.id)
-      if (error) throw error
-      refetchScenario()
-      setShowMetaModal(false)
-    } catch (err) {
-      console.error('Fehler beim Speichern der Metadaten:', err)
-      alert('Fehler beim Speichern. Bitte erneut versuchen.')
-    } finally {
-      setMetaSaving(false)
-    }
-  }
-
-  // ─── PDF Export ────────────────────────────────────
+  // ─── PDF Export ───────────────────────────────────────
   const handlePDFExport = () => {
     if (!scenario) return
     exportScenarioPDF(scenario, phases, district?.name)
   }
 
-  // ─── Loading / Not Found ───────────────────────────
-  if (scenarioLoading || phasesLoading) {
+  // ─── Modal States ─────────────────────────────────────
+  const [showMetaModal, setShowMetaModal] = useState(false)
+
+  // Hidden file input helpers
+  const triggerDocUpload = () => docFileInputRef.current?.click()
+  const clearDocUpload = () => { setUploadedDocId(null); setUploadedFileName(null) }
+
+  // ─── Loading / Not Found ──────────────────────────────
+  if (scenarioLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
@@ -265,14 +297,29 @@ export default function SzenarioDetailPage() {
     )
   }
 
-  // Tabs die editierbar sind: Krisenhandbuch + Handlungsplan
-  const isEditableTab = activeTab === 'krisenhandbuch' || activeTab === 'handlungsplan'
-  const canEdit = isEditableTab && (activeTab === 'handlungsplan' ? !!handbookV2 : !!handbookV2)
-
   return (
     <div>
-      {/* Header: Titel + Meta-Chips + Actions in einer Zeile */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* ═══ Zurück-Navigation ═══ */}
+      <Link
+        to="/pro/szenarien"
+        className="mb-3 inline-flex items-center gap-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Zurück zu Szenarien
+      </Link>
+
+      {/* ═══ Error Banner ═══ */}
+      {errorMessage && (
+        <div className="mb-4">
+          <ErrorBanner
+            message={errorMessage}
+            onDismiss={() => setErrorMessage(null)}
+          />
+        </div>
+      )}
+
+      {/* ═══ HEADER: Titel + Meta-Chips + Actions ═══ */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-2xl font-bold tracking-tight text-text-primary">{scenario.title}</h1>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -293,345 +340,189 @@ export default function SzenarioDetailPage() {
                 <Sparkles className="h-3 w-3" /> KI
               </span>
             )}
-            <button
-              onClick={openMetaModal}
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50"
-              title="Szenario-Details bearbeiten"
-            >
-              <Edit3 className="h-3 w-3" />
-            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handlePDFExport}
-            className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary"
-          >
-            <Download className="h-4 w-4" />
-            PDF
-          </button>
-          {!scenario.handbook && (
-            <>
-              <input
-                ref={docFileInputRef}
-                type="file"
-                accept=".pdf,.docx,.txt"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
-              />
-              <button
-                onClick={() => docFileInputRef.current?.click()}
-                disabled={uploadingDoc || enriching}
-                className="relative flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary disabled:opacity-60"
-                title={uploadedFileName ? `Dokument: ${uploadedFileName}` : 'Bestehenden Plan hochladen (optional)'}
-              >
-                {uploadingDoc ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : uploadedFileName ? (
-                  <>
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    <span className="max-w-[120px] truncate text-green-700">{uploadedFileName}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setUploadedDocId(null); setUploadedFileName(null) }}
-                      className="ml-1 rounded p-0.5 text-text-muted transition-colors hover:text-red-500"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4" />
-                    Upload
-                  </>
-                )}
-              </button>
-            </>
-          )}
-          {!scenario.handbook && (
+          {/* Speichern-Button für Eskalationsstufen */}
+          {eskalationDirty && (
             <button
-              onClick={handleEnrich}
-              disabled={enriching}
-              className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:opacity-60"
+              onClick={saveEskalationsstufen}
+              disabled={eskalationSaving}
+              className={`flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 disabled:opacity-50 ${
+                !eskalationSaving ? 'animate-pulse' : ''
+              }`}
             >
-              {enriching ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generiere…
-                </>
+              {eskalationSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  KI generieren
-                </>
+                <Save className="h-4 w-4" />
               )}
-            </button>
-          )}
-          {canEdit && editingTab !== activeTab && (
-            <button
-              onClick={() => setEditingTab(activeTab)}
-              className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700"
-            >
-              <Edit3 className="h-4 w-4" />
-              Bearbeiten
+              Speichern
             </button>
           )}
         </div>
       </div>
 
-      {/* Enriching-Banner (während Generierung) */}
-      {enriching && !scenario.handbook && (
-        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
-          <p className="text-sm text-amber-800">
-            <strong>Krisenhandbuch wird generiert…</strong> Die KI erstellt Handlungsplan, Risikobewertung, Kommunikationsplan, Verantwortlichkeiten und mehr. Dies kann 20–40 Sekunden dauern.
-          </p>
-        </div>
-      )}
+      {/* Hidden file input for document upload */}
+      <input
+        ref={docFileInputRef}
+        type="file"
+        accept=".pdf,.docx,.txt"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && handleDocUpload(e.target.files[0])}
+      />
 
-      {/* Tab-Leiste */}
-      <div className="mb-3 overflow-x-auto border-b border-border">
-        <div className="flex min-w-max gap-1">
+      {/* ═══ 7-TAB-LEISTE ═══ */}
+      <div className="mb-4 overflow-x-auto border-b border-border">
+        <div className="flex min-w-max gap-1" role="tablist" aria-label="Szenario-Bereiche">
           {TABS.map(tab => {
             const isActive = activeTab === tab.key
             const Icon = tab.icon
-            const isDisabled = tab.needsHandbook && !handbookV2
-
+            const stufeColors = tab.stufeNr ? ESKALATION_COLORS[tab.stufeNr] : null
             return (
               <button
                 key={tab.key}
-                onClick={() => { if (!isDisabled) { setActiveTab(tab.key); setEditingTab(null) } }}
-                disabled={isDisabled}
+                role="tab"
+                aria-selected={isActive}
+                id={`tab-${tab.key}`}
+                aria-controls={`tabpanel-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'border-primary-600 text-primary-600'
-                    : isDisabled
-                    ? 'cursor-not-allowed border-transparent text-text-muted opacity-50'
+                    ? stufeColors ? `${stufeColors.borderB} ${stufeColors.text}` : 'border-primary-600 text-primary-600'
                     : 'border-transparent text-text-secondary hover:border-gray-300 hover:text-text-primary'
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                {stufeColors ? (
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full ${stufeColors.dot} text-[10px] font-bold text-white`}>
+                    {tab.stufeNr}
+                  </span>
+                ) : Icon ? (
+                  <Icon className="h-4 w-4" />
+                ) : null}
                 {tab.label}
+                {eskalationDirty && tab.stufeNr && (
+                  <span className="ml-1 h-1.5 w-1.5 rounded-full bg-orange-400" />
+                )}
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Tab-spezifische KPI-Leiste */}
-      <TabKPIs activeTab={activeTab} handbook={handbookV2} phases={phases} />
-
-      {/* Tab-Content */}
-      <div>
+      {/* ═══ TAB CONTENT ═══ */}
+      <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
         {activeTab === 'uebersicht' && (
-          <UebersichtTab scenario={scenario} handbook={handbookV2} phases={phases} />
+          <UebersichtSection
+            scenario={scenario}
+            handbook={handbookV3}
+            readiness={readiness}
+            eskalationsstufen={eskalationsstufen}
+            krisenstabRollen={krisenstabRollen}
+            onNavigateTab={setActiveTab}
+            onOpenMetaModal={() => setShowMetaModal(true)}
+            enriching={enriching}
+            onEnrich={handleEnrich}
+            uploadedFileName={uploadedFileName}
+            uploadingDoc={uploadingDoc}
+            onUploadClick={triggerDocUpload}
+            onClearUpload={clearDocUpload}
+            hasExistingHandbook={!!handbookV3}
+            isHandbookEdited={!!scenario.is_edited}
+          />
         )}
 
-        {activeTab === 'krisenhandbuch' && (
-          handbookV2 ? (
-            <KrisenhandbuchTab
-              handbook={handbookV2}
-              scenarioId={scenario.id}
-              districtId={district?.id || ''}
-              onUpdateHandbook={onUpdateHandbook}
-              saving={handbookSaving}
-              isEditing={editingTab === 'krisenhandbuch'}
-              onStopEditing={() => setEditingTab(null)}
-            />
-          ) : (
-            <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-              <BookOpen className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-              <p className="text-sm text-text-secondary">
-                Noch kein Krisenhandbuch vorhanden. Klicken Sie oben auf „KI generieren", um das vollständige Krisenhandbuch zu erstellen.
-              </p>
+        {/* ═══ Stufen-Tabs (1–3): Header + Handlungsplan + Alarmierung + Kommunikation + Ressourcen ═══ */}
+        {(activeTab === 'stufe1' || activeTab === 'stufe2' || activeTab === 'stufe3') && (() => {
+          const stufeIdx = activeTab === 'stufe1' ? 0 : activeTab === 'stufe2' ? 1 : 2
+          const currentStufe = eskalationsstufen[stufeIdx]
+          if (!currentStufe) return null
+          return (
+            <div className="space-y-6">
+              {/* Stufen-Header: Auslöser, Eskalationskriterien, Lage */}
+              <StufeHeaderSection
+                stufe={currentStufe}
+                stufeIdx={stufeIdx}
+                onChange={handleStufeFieldUpdate}
+              />
+
+              {/* Handlungsplan für diese Stufe */}
+              <HandlungsplanSection
+                eskalationsstufen={eskalationsstufen}
+                handbook={handbookV3}
+                onChange={handleEskalationChange}
+                filterStufeIdx={stufeIdx}
+              />
+
+              {/* Alarmierung für diese Stufe */}
+              {district && (
+                <AlarmierungSection
+                  eskalationsstufen={eskalationsstufen}
+                  krisenstabRollen={krisenstabRollen}
+                  alertContacts={alertContacts}
+                  onOpenAlarmketteModal={(idx) => setAlarmketteModalStufeIdx(idx)}
+                  filterStufeIdx={stufeIdx}
+                />
+              )}
+
+              {/* Kommunikation für diese Stufe */}
+              <KommunikationSection
+                stufe={currentStufe}
+                stufeIdx={stufeIdx}
+                onChange={handleStufeFieldUpdate}
+              />
+
+              {/* Ressourcen & Logistik für diese Stufe */}
+              <RessourcenSection
+                stufe={currentStufe}
+                stufeIdx={stufeIdx}
+                onChange={handleStufeFieldUpdate}
+              />
             </div>
           )
+        })()}
+
+        {activeTab === 'checklisten' && district && (
+          <ChecklistenSection
+            scenarioId={id!}
+            districtId={district.id}
+          />
         )}
 
-        {activeTab === 'handlungsplan' && (
-          handbookV2 ? (
-            <HandlungsplanTab
-              phases={phases}
-              onSavePhases={onSavePhases}
-              saving={phaseSaving}
-              isEditing={editingTab === 'handlungsplan'}
-              onStopEditing={() => setEditingTab(null)}
-            />
-          ) : (
-            <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-              <Sparkles className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-              <p className="text-sm text-text-secondary">
-                Noch kein Handlungsplan vorhanden. Klicken Sie oben auf „KI generieren", um das vollständige Krisenhandbuch zu erstellen.
-              </p>
-            </div>
-          )
+        {activeTab === 'inventar' && district && (
+          <InventarSection
+            scenarioId={id!}
+            districtId={district.id}
+            scenarioTitle={scenario.title}
+          />
         )}
 
-        {activeTab === 'checklisten' && handbookV2 && (
-          <ChecklistenTab handbook={handbookV2} />
-        )}
-        {activeTab === 'checklisten' && !handbookV2 && (
-          <div className="rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-            <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-text-muted" />
-            <p className="text-sm text-text-secondary">
-              Noch keine Checklisten vorhanden. Generieren Sie zuerst das Krisenhandbuch.
-            </p>
-          </div>
-        )}
-
-        {activeTab === 'dokumente' && scenario && district && (
-          <DokumenteTab scenarioId={scenario.id} districtId={district.id} />
+        {activeTab === 'handbuch' && district && (
+          <HandbuchDokumenteSection
+            scenario={scenario}
+            handbook={handbookV3}
+            districtId={district.id}
+            onPDFExport={handlePDFExport}
+            onUpdateHandbook={handleUpdateHandbook}
+          />
         )}
       </div>
 
-      {/* ─── Metadaten-Edit Modal (klein, nur Szenario-Infos) ─── */}
-      <Modal
+      {/* ═══ MODALS ═══ */}
+      <MetadatenModal
         open={showMetaModal}
-        onClose={() => !metaSaving && setShowMetaModal(false)}
-        title="Szenario-Details bearbeiten"
-        size="md"
-      >
-        <FormField label="Titel" required>
-          <input
-            className={inputClass}
-            value={metaForm.title}
-            onChange={(e) => setMetaForm({ ...metaForm, title: e.target.value })}
-            placeholder="z.B. Großflächiger Stromausfall"
-          />
-        </FormField>
+        onClose={() => setShowMetaModal(false)}
+        scenario={scenario}
+        onSaved={refetchScenario}
+      />
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Typ" required>
-            <select
-              className={selectClass}
-              value={metaForm.type}
-              onChange={(e) => setMetaForm({ ...metaForm, type: e.target.value })}
-            >
-              {scenarioTypes.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </FormField>
-
-          <FormField label={`Schweregrad: ${metaForm.severity}/100`}>
-            <input
-              type="range"
-              min="1"
-              max="100"
-              value={metaForm.severity}
-              onChange={(e) => setMetaForm({ ...metaForm, severity: parseInt(e.target.value, 10) })}
-              className="mt-2 w-full accent-primary-600"
-            />
-          </FormField>
-        </div>
-
-        <FormField label="Beschreibung">
-          <textarea
-            className={textareaClass}
-            rows={3}
-            value={metaForm.description}
-            onChange={(e) => setMetaForm({ ...metaForm, description: e.target.value })}
-            placeholder="Kurze Beschreibung des Krisenszenarios..."
-          />
-        </FormField>
-
-        <FormField label="Betroffene Bevölkerung">
-          <input
-            type="number"
-            className={inputClass}
-            value={metaForm.affected_population}
-            onChange={(e) => setMetaForm({ ...metaForm, affected_population: e.target.value })}
-            placeholder="z.B. 25000"
-          />
-        </FormField>
-
-        <ModalFooter
-          onCancel={() => setShowMetaModal(false)}
-          onSubmit={saveMetadata}
-          submitLabel="Speichern"
-          loading={metaSaving}
-          disabled={!metaForm.title.trim() || !metaForm.type}
-        />
-      </Modal>
-    </div>
-  )
-}
-
-// ─── Tab-spezifische KPI-Leiste ─────────────────────
-interface KPI { label: string; value: string | number; color: 'primary' | 'green' | 'amber' | 'red' | 'gray' }
-
-const kpiColorClasses: Record<KPI['color'], string> = {
-  primary: 'bg-primary-50 text-primary-700',
-  green: 'bg-green-50 text-green-700',
-  amber: 'bg-amber-50 text-amber-700',
-  red: 'bg-red-50 text-red-700',
-  gray: 'bg-gray-100 text-gray-600',
-}
-
-function getTabKPIs(
-  activeTab: TabKey,
-  handbook: ScenarioHandbookV2 | null,
-  phases: DbScenarioPhase[],
-): KPI[] {
-  switch (activeTab) {
-    case 'uebersicht':
-      return [] // Mini-Stats sind direkt im Tab
-    case 'krisenhandbuch': {
-      if (!handbook) return []
-      const kapitelCount = handbook.kapitel.length
-      const totalItems = handbook.kapitel.reduce((sum, k) => sum + k.checkliste.length, 0)
-      const doneItems = handbook.kapitel.reduce(
-        (sum, k) => sum + k.checkliste.filter(i => i.status === 'done' || i.status === 'skipped').length, 0
-      )
-      const percent = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0
-      return [
-        { label: 'Kapitel', value: kapitelCount, color: 'primary' },
-        { label: 'Checklisten-Punkte', value: totalItems, color: 'primary' },
-        { label: 'Fortschritt', value: `${percent}%`, color: percent >= 80 ? 'green' : percent >= 40 ? 'amber' : 'gray' },
-      ]
-    }
-    case 'handlungsplan': {
-      const totalTasks = phases.reduce((acc, p) => acc + (p.tasks?.length || 0), 0)
-      return [
-        { label: 'Phasen', value: phases.length, color: 'primary' },
-        { label: 'Aufgaben', value: totalTasks, color: 'primary' },
-      ]
-    }
-    case 'checklisten': {
-      if (!handbook) return [{ label: 'Aufgaben', value: 0, color: 'gray' }]
-      const allItems = handbook.kapitel.flatMap(k => k.checkliste)
-      const doneCount = allItems.filter(i => i.status === 'done' || i.status === 'skipped').length
-      const percent = allItems.length > 0 ? Math.round((doneCount / allItems.length) * 100) : 0
-      return [
-        { label: 'Aufgaben', value: allItems.length, color: 'primary' },
-        { label: 'Erledigt', value: doneCount, color: doneCount === allItems.length && allItems.length > 0 ? 'green' : 'primary' },
-        { label: 'Fortschritt', value: `${percent}%`, color: percent >= 80 ? 'green' : percent >= 40 ? 'amber' : 'gray' },
-      ]
-    }
-    case 'dokumente':
-      return []
-    default:
-      return []
-  }
-}
-
-function TabKPIs({ activeTab, handbook, phases }: {
-  activeTab: TabKey
-  handbook: ScenarioHandbookV2 | null
-  phases: DbScenarioPhase[]
-}) {
-  const kpis = getTabKPIs(activeTab, handbook, phases)
-  if (kpis.length === 0) return null
-
-  return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      {kpis.map((kpi) => (
-        <span
-          key={kpi.label}
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${kpiColorClasses[kpi.color]}`}
-        >
-          {kpi.label}: {kpi.value}
-        </span>
-      ))}
+      <AlarmketteEditModal
+        open={alarmketteModalStufeIdx !== null}
+        onClose={() => setAlarmketteModalStufeIdx(null)}
+        alarmkette={alarmketteModalStufeIdx !== null ? eskalationsstufen[alarmketteModalStufeIdx]?.alarmkette || [] : []}
+        alertContacts={alertContacts}
+        onSave={handleAlarmketteSave}
+      />
     </div>
   )
 }

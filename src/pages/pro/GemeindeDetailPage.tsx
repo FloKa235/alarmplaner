@@ -37,15 +37,29 @@ export default function GemeindeDetailPage() {
     [id]
   )
 
+  // Landkreis-Szenarien (Top 3)
   const { data: scenarios } = useSupabaseQuery<DbScenario>(
     (sb) =>
       sb
         .from('scenarios')
         .select('*')
         .eq('district_id', districtId!)
+        .is('municipality_id', null)
         .order('severity', { ascending: false })
         .limit(3),
     [districtId]
+  )
+
+  // Gemeinde-eigene Szenarien
+  const { data: gemeindeScenarios } = useSupabaseQuery<DbScenario>(
+    (sb) =>
+      sb
+        .from('scenarios')
+        .select('*')
+        .eq('district_id', districtId!)
+        .eq('municipality_id', id!)
+        .order('severity', { ascending: false }),
+    [districtId, id]
   )
 
   if (districtLoading || municipalityLoading || kritisLoading) {
@@ -221,6 +235,38 @@ export default function GemeindeDetailPage() {
                     <span className="text-sm font-medium text-text-primary">{s.title}</span>
                     <Badge variant={s.severity >= 70 ? 'danger' : 'warning'}>{s.severity}</Badge>
                   </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Gemeinde-Szenarien */}
+          <div className="rounded-2xl border border-border bg-white p-6">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-text-primary">
+              <Flame className="h-5 w-5 text-green-500" />
+              Gemeinde-Handlungspläne
+              {gemeindeScenarios.length > 0 && (
+                <Badge>{gemeindeScenarios.length}</Badge>
+              )}
+            </h2>
+            <div className="space-y-3">
+              {gemeindeScenarios.length === 0 ? (
+                <p className="text-sm text-text-muted">Keine eigenen Handlungspläne für diese Gemeinde.</p>
+              ) : (
+                gemeindeScenarios.map((s) => (
+                  <Link
+                    key={s.id}
+                    to={`/pro/szenarien/${s.id}`}
+                    className="flex items-center justify-between rounded-xl bg-surface-secondary p-3 transition-colors hover:bg-surface-secondary/80"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-medium text-text-primary">{s.title}</span>
+                      {s.is_handbook_generated && (
+                        <span className="ml-2 text-xs text-text-muted">Handbuch</span>
+                      )}
+                    </div>
+                    <Badge variant={s.severity >= 70 ? 'danger' : s.severity >= 40 ? 'warning' : 'success'}>{s.severity}</Badge>
+                  </Link>
                 ))
               )}
             </div>

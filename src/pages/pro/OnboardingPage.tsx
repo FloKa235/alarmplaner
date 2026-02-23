@@ -248,6 +248,23 @@ export default function OnboardingPage() {
                   })),
                   generated_at: new Date().toISOString(),
                 } : null,
+                // Maßnahmenplan-Template in meta.massnahmenplan einspeisen
+                meta: template.alarmkette ? {
+                  massnahmenplan: {
+                    alarmkette: template.alarmkette.map((schritt, idx) => ({
+                      id: crypto.randomUUID(),
+                      reihenfolge: idx + 1,
+                      rolle: schritt.rolle,
+                      kontaktgruppen: schritt.kontaktgruppen,
+                      kanaele: schritt.kanaele,
+                      wartezeit_min: schritt.wartezeit_min,
+                      bedingung: null,
+                    })),
+                    aufgaben_zuweisung: [],
+                    generated_at: new Date().toISOString(),
+                    last_edited: null,
+                  },
+                } : null,
               })
               .select('id')
               .single()
@@ -398,8 +415,10 @@ export default function OnboardingPage() {
           if (!cancelledRef.current) setStep(3)
         }, 1000))
       } catch (err: unknown) {
+        console.error('Onboarding Error:', err)
         if (!cancelledRef.current) {
-          setError(err instanceof Error ? err.message : 'Fehler beim Erstellen des Landkreises')
+          const msg = err instanceof Error ? err.message : typeof err === 'object' && err !== null && 'message' in err ? String((err as { message: string }).message) : JSON.stringify(err)
+          setError(msg || 'Fehler beim Erstellen des Landkreises')
           setStep(1)
         }
       } finally {

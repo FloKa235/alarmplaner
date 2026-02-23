@@ -111,3 +111,147 @@ body {
 .hero-animate > *:nth-child(4) { animation-delay: 0.4s; }
 .hero-animate > *:nth-child(5) { animation-delay: 0.5s; }
 .hero-animate > *:nth-child(6) { animation-delay: 0.6s; }
+
+/* ─── tiptap Editor Styles ─────────────────────── */
+.tiptap-content .tiptap {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: var(--color-text-secondary);
+}
+
+.tiptap-content .tiptap:focus {
+  outline: none;
+}
+
+.tiptap-content .tiptap h3 {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-top: 1rem;
+  margin-bottom: 0.375rem;
+}
+
+.tiptap-content .tiptap h3:first-child {
+  margin-top: 0;
+}
+
+.tiptap-content .tiptap p {
+  margin-bottom: 0.5rem;
+}
+
+.tiptap-content .tiptap p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap-content .tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.tiptap-content .tiptap li {
+  margin-bottom: 0.125rem;
+}
+
+.tiptap-content .tiptap strong {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.tiptap-content .tiptap em {
+  font-style: italic;
+}
+
+.tiptap-content .tiptap a {
+  color: var(--color-primary-600);
+  text-decoration: underline;
+}
+
+.tiptap-content .tiptap a:hover {
+  color: var(--color-primary-700);
+}
+
+.tiptap-content .tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 0.75rem 0;
+}
+
+.tiptap-content .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  height: 0;
+}
+
+/* ─── Krisenmodus: Dark/Red CSS Override ──────────────
+   Alle Tailwind-Utilities referenzieren --color-* Variablen.
+   Durch Override in .crisis-mode wechselt das gesamte Farbschema
+   automatisch – OHNE bestehende Komponenten anzufassen.
+   ──────────────────────────────────────────────────── */
+
+.crisis-mode {
+  --color-primary-50: #fef2f2;
+  --color-primary-100: #fee2e2;
+  --color-primary-200: #fecaca;
+  --color-primary-300: #fca5a5;
+  --color-primary-400: #f87171;
+  --color-primary-500: #ef4444;
+  --color-primary-600: #dc2626;
+  --color-primary-700: #b91c1c;
+  --color-primary-800: #991b1b;
+  --color-primary-900: #7f1d1d;
+
+  --color-surface: #1a0a0a;
+  --color-surface-secondary: #0f0505;
+  --color-surface-blue: #1c0a0a;
+
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #64748b;
+
+  --color-border: #2d1111;
+
+  --color-tint-red: #3b1111;
+  --color-tint-blue: #1c0a0a;
+  --color-tint-amber: #2d1a0a;
+  --color-tint-green: #0a1c0a;
+  --color-tint-orange: #2d1505;
+}
+
+/* White backgrounds → dark crisis surface */
+.crisis-mode .bg-white {
+  background-color: #1c0a0a;
+}
+
+/* Sidebar dark override */
+.crisis-mode .bg-surface-dark {
+  background-color: #0a0303;
+}
+.crisis-mode .bg-surface-dark-lighter {
+  background-color: #120606;
+}
+
+/* Crisis pulsing border animation */
+@keyframes crisis-pulse {
+  0%, 100% { border-color: #dc2626; }
+  50% { border-color: #7f1d1d; }
+}
+.crisis-pulse-border {
+  animation: crisis-pulse 2s ease-in-out infinite;
+}
+
+/* Crisis pulsing dot */
+@keyframes crisis-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.crisis-dot-pulse {
+  animation: crisis-dot-pulse 1.5s ease-in-out infinite;
+}
+
+/* Smooth transition for crisis mode toggle */
+.crisis-transition {
+  transition: background-color 0.5s ease, color 0.5s ease, border-color 0.5s ease;
+}

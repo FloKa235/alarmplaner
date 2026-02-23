@@ -1,21 +1,35 @@
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, AlertTriangle, ClipboardList, FileText, Settings, LogOut, Menu, X, Shield } from 'lucide-react'
+import { Package, BookOpen, FileText, Settings, LogOut, Menu, X, Shield, AlertTriangle, Users } from 'lucide-react'
 import { useState } from 'react'
 import clsx from 'clsx'
 import { useAuth } from '@/contexts/AuthContext'
+import { useCitizenHousehold } from '@/hooks/useCitizenHousehold'
+import { useVorsorgeScore } from '@/hooks/useVorsorgeScore'
+import CircularProgress from '@/components/app/CircularProgress'
+import BuergerOnboarding from '@/components/app/BuergerOnboarding'
+import ChatWidget from '@/components/app/ChatWidget'
 
 const navItems = [
-  { label: 'Dashboard', href: '/app', icon: LayoutDashboard },
-  { label: 'Warnungen', href: '/app/warnungen', icon: AlertTriangle },
-  { label: 'Checklisten', href: '/app/checklisten', icon: ClipboardList },
   { label: 'Notfallplan', href: '/app/notfallplan', icon: FileText },
-  { label: 'Einstellungen', href: '/app/einstellungen', icon: Settings },
+  { label: 'Notfallvorsorge', href: '/app/vorsorge', icon: Package },
+  { label: 'Wissen', href: '/app/wissen', icon: BookOpen },
+  { label: 'Nachbarn', href: '/app/nachbarn', icon: Users },
 ]
 
 export default function AppLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { displayName, signOut } = useAuth()
+  const { hasCompletedOnboarding, loading: onboardingLoading } = useCitizenHousehold()
+  const { total: vorsorgeScore, color: scoreColor } = useVorsorgeScore()
   const navigate = useNavigate()
+
+  const scoreColorMap: Record<string, string> = {
+    red: 'var(--color-red-500)',
+    amber: 'var(--color-amber-500)',
+    blue: 'var(--color-primary-600)',
+    green: 'var(--color-green-500)',
+    purple: 'var(--color-purple-500)',
+  }
 
   const handleLogout = async () => {
     await signOut()
@@ -24,10 +38,13 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-surface-secondary">
+      {/* Onboarding Overlay – erscheint beim ersten Login wenn Onboarding nicht abgeschlossen */}
+      {!onboardingLoading && !hasCompletedOnboarding && <BuergerOnboarding />}
+
       {/* Top Navigation */}
       <nav className="sticky top-0 z-40 border-b border-border bg-white/95 backdrop-blur-lg">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
-          {/* Logo */}
+          {/* Logo → Dashboard */}
           <Link to="/app" className="flex items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary-600">
               <AlertTriangle className="h-5 w-5 text-white" />
@@ -42,7 +59,6 @@ export default function AppLayout() {
               <NavLink
                 key={item.href}
                 to={item.href}
-                end={item.href === '/app'}
                 className={({ isActive }) =>
                   clsx(
                     'flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors',
@@ -68,17 +84,44 @@ export default function AppLayout() {
               <span className="hidden sm:inline">PRO-Dashboard</span>
               <span className="sm:hidden">PRO</span>
             </Link>
+            {vorsorgeScore > 0 && (
+              <Link to="/app" className="hidden items-center gap-1.5 sm:flex" title={`Vorsorge-Score: ${vorsorgeScore}/100`}>
+                <CircularProgress
+                  value={vorsorgeScore}
+                  size={28}
+                  strokeWidth={3}
+                  color={scoreColorMap[scoreColor] || scoreColorMap.red}
+                >
+                  <span className="text-[9px] font-bold text-text-primary">{vorsorgeScore}</span>
+                </CircularProgress>
+              </Link>
+            )}
             {displayName && (
               <span className="hidden text-sm font-medium text-text-primary sm:inline">
                 {displayName}
               </span>
             )}
+            {/* Einstellungen – nur Icon */}
+            <NavLink
+              to="/app/einstellungen"
+              className={({ isActive }) =>
+                clsx(
+                  'hidden h-9 w-9 items-center justify-center rounded-xl border transition-colors sm:flex',
+                  isActive
+                    ? 'border-primary-200 bg-primary-50 text-primary-600'
+                    : 'border-border text-text-secondary hover:bg-surface-secondary hover:text-text-primary'
+                )
+              }
+              title="Einstellungen"
+            >
+              <Settings className="h-4 w-4" />
+            </NavLink>
             <button
               onClick={handleLogout}
-              className="hidden items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-secondary sm:flex"
+              className="hidden h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-secondary sm:flex"
+              title="Abmelden"
             >
               <LogOut className="h-4 w-4" />
-              Abmelden
             </button>
 
             {/* Mobile hamburger */}
@@ -98,7 +141,6 @@ export default function AppLayout() {
               <NavLink
                 key={item.href}
                 to={item.href}
-                end={item.href === '/app'}
                 onClick={() => setMobileMenuOpen(false)}
                 className={({ isActive }) =>
                   clsx(
@@ -113,6 +155,21 @@ export default function AppLayout() {
                 {item.label}
               </NavLink>
             ))}
+            <NavLink
+              to="/app/einstellungen"
+              onClick={() => setMobileMenuOpen(false)}
+              className={({ isActive }) =>
+                clsx(
+                  'flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary-50 text-primary-600'
+                    : 'text-text-secondary hover:bg-surface-secondary'
+                )
+              }
+            >
+              <Settings className="h-4 w-4" />
+              Einstellungen
+            </NavLink>
             <Link
               to="/pro"
               onClick={() => setMobileMenuOpen(false)}
@@ -136,6 +193,9 @@ export default function AppLayout() {
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <Outlet />
       </main>
+
+      {/* Floating Chat Widget */}
+      <ChatWidget />
     </div>
   )
 }

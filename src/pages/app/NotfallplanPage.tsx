@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
-import { MapPin, Phone, Users, FileText, Edit3, Save, Plus, Trash2, X } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { MapPin, Phone, Users, FileText, Edit3, Save, Plus, Trash2, X, FileDown } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import Modal, { FormField, ModalFooter, inputClass, textareaClass } from '@/components/ui/Modal'
+import { useCitizenLocation } from '@/hooks/useCitizenLocation'
 
 // ─── Types ────────────────────────────────────────────
 
@@ -79,6 +80,7 @@ function saveData(data: NotfallplanData) {
 
 export default function NotfallplanPage() {
   const [data, setData] = useState<NotfallplanData>(loadData)
+  const { location } = useCitizenLocation()
 
   // Treffpunkt editing
   const [editMeeting, setEditMeeting] = useState(false)
@@ -160,6 +162,20 @@ export default function NotfallplanPage() {
     }))
   }
 
+  // ─── PDF Export ─────────────────────────────────────
+
+  const handleExportPDF = useCallback(async () => {
+    const { exportNotfallkartePDF } = await import('@/utils/notfallkarte-export')
+    exportNotfallkartePDF({
+      meetingPoint: data.meetingPoint,
+      contacts: data.contacts,
+      notes: data.notes,
+      locationName: location?.districtName,
+    })
+  }, [data, location])
+
+  const canExport = data.contacts.length > 0 || data.meetingPoint.primary
+
   // ─── Render ─────────────────────────────────────────
 
   const hasAnyData =
@@ -172,6 +188,17 @@ export default function NotfallplanPage() {
       <PageHeader
         title="Persönlicher Notfallplan"
         description="Dein persönlicher Plan für den Ernstfall. Teile ihn mit deiner Familie."
+        actions={
+          <button
+            onClick={handleExportPDF}
+            disabled={!canExport}
+            className="flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+            title={canExport ? 'PDF-Notfallkarte herunterladen' : 'Trage zuerst Treffpunkt oder Kontakte ein'}
+          >
+            <FileDown className="h-4 w-4" />
+            PDF Notfallkarte
+          </button>
+        }
       />
 
       {/* Empty state hint */}

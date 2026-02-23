@@ -3,8 +3,10 @@ import {
   Users, MapPin, Building2, AlertTriangle, Flame, Package, Bell, Landmark,
   ClipboardList, ChevronRight, ChevronDown, Loader2, TrendingUp, ShieldAlert,
   CheckCircle2, CircleAlert, CircleDot, ArrowRight, RefreshCw, CloudSun, ExternalLink,
+  Zap, Radio,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useCrisis } from '@/contexts/CrisisContext'
 import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import MapView, { type MapMarker } from '@/components/ui/MapView'
@@ -38,6 +40,7 @@ function riskLevelLabel(level: string | null): string {
 
 export default function ProDashboard() {
   const { district, districtId, loading: districtLoading } = useDistrict()
+  const { isActive: crisisActive, scenarioTitle: crisisScenarioTitle } = useCrisis()
   const [showAllGemeinden, setShowAllGemeinden] = useState(false)
 
   // ─── Queries ─────────────────────────────────────
@@ -239,6 +242,28 @@ export default function ProDashboard() {
 
   return (
     <div>
+      {/* Krisenbanner wenn aktiv */}
+      {crisisActive && (
+        <Link
+          to="/pro/lagezentrum"
+          className="mb-6 flex items-center justify-between rounded-2xl border-2 border-red-600 bg-red-900/90 p-4 transition-colors hover:bg-red-900"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600">
+              <Zap className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-red-100">KRISENFALL AKTIV</p>
+              <p className="text-xs text-red-300">{crisisScenarioTitle || 'Unbekanntes Szenario'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm font-medium text-red-200">
+            <Radio className="h-4 w-4" />
+            Zum Lagezentrum →
+          </div>
+        </Link>
+      )}
+
       <PageHeader
         title={`Landkreis ${district?.name || ''}`}
         description="Geografische Übersicht, Gemeinden und Vorbereitungsstatus."

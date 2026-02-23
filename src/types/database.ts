@@ -56,6 +56,12 @@ export interface Database {
         Update: Partial<DbInventoryItemInsert>
         Relationships: []
       }
+      inventory_scenario_links: {
+        Row: DbInventoryScenarioLink
+        Insert: DbInventoryScenarioLink
+        Update: Partial<DbInventoryScenarioLink>
+        Relationships: []
+      }
       alert_contacts: {
         Row: DbAlertContact
         Insert: DbAlertContactInsert
@@ -72,6 +78,24 @@ export interface Database {
         Row: DbDocument
         Insert: DbDocumentInsert
         Update: Partial<DbDocumentInsert>
+        Relationships: []
+      }
+      crisis_events: {
+        Row: DbCrisisEvent
+        Insert: DbCrisisEventInsert
+        Update: Partial<DbCrisisEventInsert>
+        Relationships: []
+      }
+      neighborhood_profiles: {
+        Row: DbNeighborhoodProfile
+        Insert: DbNeighborhoodProfileInsert
+        Update: Partial<DbNeighborhoodProfileInsert>
+        Relationships: []
+      }
+      neighborhood_requests: {
+        Row: DbNeighborhoodRequest
+        Insert: DbNeighborhoodRequestInsert
+        Update: Partial<DbNeighborhoodRequestInsert>
         Relationships: []
       }
     }
@@ -94,6 +118,11 @@ export interface DbDistrict {
   latitude: number | null
   longitude: number | null
   last_auto_refresh: string | null
+  crisis_active: boolean
+  crisis_scenario_id: string | null
+  crisis_stufe: 'vorwarnung' | 'teilaktivierung' | 'vollaktivierung' | null
+  crisis_started_at: string | null
+  crisis_ended_at: string | null
   created_at: string
 }
 
@@ -122,6 +151,22 @@ export interface DbKritisSite {
   address: string | null
   risk_exposure: string | null
   metadata: Record<string, unknown>
+  // Ansprechpartner vor Ort
+  contact_name: string | null
+  contact_phone: string | null
+  contact_email: string | null
+  // Betreiber
+  operator: string | null
+  employee_count: number | null
+  // Notfallbereitschaft
+  has_emergency_plan: boolean
+  emergency_plan_updated_at: string | null
+  emergency_plan_notes: string | null
+  // Resilienz
+  redundancy_level: 'keine' | 'teilweise' | 'voll' | null
+  has_backup_power: boolean
+  // Inspektion
+  last_inspected_at: string | null
   created_at: string
 }
 
@@ -146,6 +191,7 @@ export interface DbRiskEntry {
 export interface DbScenario {
   id: string
   district_id: string
+  municipality_id: string | null
   title: string
   type: string
   severity: number
@@ -154,9 +200,11 @@ export interface DbScenario {
   is_ai_generated: boolean
   is_edited: boolean
   is_default: boolean
-  handbook: ScenarioHandbook | ScenarioHandbookV2 | null
+  handbook: ScenarioHandbook | ScenarioHandbookV2 | ScenarioHandbookV3 | null
   is_handbook_generated: boolean
+  meta: SzenarioMeta | null
   created_at: string
+  updated_at: string | null
 }
 
 // ─── Krisenhandbuch V2 (Kapitel-basiert) ──────────────
@@ -182,8 +230,121 @@ export interface ScenarioHandbookV2 {
   generated_at: string
 }
 
-export function isHandbookV2(h: ScenarioHandbook | ScenarioHandbookV2 | null): h is ScenarioHandbookV2 {
+export function isHandbookV2(h: ScenarioHandbook | ScenarioHandbookV2 | ScenarioHandbookV3 | null): h is ScenarioHandbookV2 {
   return h !== null && 'version' in h && (h as ScenarioHandbookV2).version === 2
+}
+
+// ─── Krisenhandbuch V3 (BSI/BBK 12-Kapitel) ──────────────
+export interface KrisenhandbuchKapitelV3 extends KrisenhandbuchKapitel {
+  key: string  // Semantischer Key aus KAPITEL_CONFIG (z.B. 'einleitung', 'krisenorganisation')
+}
+
+export interface ScenarioHandbookV3 {
+  version: 3
+  kapitel: KrisenhandbuchKapitelV3[]
+  generated_at: string
+}
+
+export function isHandbookV3(h: ScenarioHandbook | ScenarioHandbookV2 | ScenarioHandbookV3 | null): h is ScenarioHandbookV3 {
+  return h !== null && 'version' in h && (h as ScenarioHandbookV3).version === 3
+}
+
+// ─── Plan-Metadaten (Deckblatt/Impressum) ──────────────
+export interface PlanMetadaten {
+  ersteller: string | null
+  version: string              // Default "1.0"
+  gueltig_bis: string | null   // ISO date
+  naechste_ueberpruefung: string | null
+  freigabe_durch: string | null
+  verteiler: string[]
+}
+
+// ─── Maßnahmenplan (operatives Einsatzprotokoll) ─────────
+export type AlarmKanal = 'telefon' | 'email' | 'funk' | 'nina' | 'sirene' | 'messenger'
+
+export interface AlarmkettenSchritt {
+  id: string                    // crypto.randomUUID()
+  reihenfolge: number           // 1, 2, 3...
+  rolle: string                 // "S3 – Einsatz"
+  kontaktgruppen: string[]      // Mappt auf alert_contacts.groups[]
+  kanaele: AlarmKanal[]
+  wartezeit_min: number         // Wartezeit zum nächsten Schritt
+  bedingung: string | null      // z.B. "Bei Vollaktivierung"
+}
+
+export interface MassnahmenZuweisung {
+  task_text: string             // Task-Text (matcht Phase-Task)
+  verantwortlich: string | null // "S1"..."S6" oder "Alle"
+  prioritaet: 'sofort' | 'hoch' | 'mittel' | 'niedrig'
+}
+
+export interface Massnahmenplan {
+  alarmkette: AlarmkettenSchritt[]
+  aufgaben_zuweisung: MassnahmenZuweisung[]
+  generated_at: string | null
+  last_edited: string | null
+}
+
+// ─── Eskalationsstufen (3-Stufen-Modell) ──────────────────
+export type EskalationsStufeNummer = 1 | 2 | 3
+
+export interface EskalationsChecklistItem {
+  id: string                    // crypto.randomUUID()
+  text: string                  // Schritt-Titel (z.B. "Krisenstab einberufen")
+  beschreibung?: string         // Detailbeschreibung des Schritts
+  status: 'open' | 'done' | 'skipped'
+  completed_at: string | null
+}
+
+export interface EskalationsKommunikation {
+  intern: string[]               // Interne Kommunikationsmaßnahmen
+  extern: string[]               // Externe Kommunikation (Bevölkerung, Medien, Behörden)
+  kanaele: string[]              // Kommunikationskanäle (NINA, Sirene, Social Media, etc.)
+  sprachregelungen: string[]     // Vorgefertigte Formulierungen für diese Stufe
+}
+
+export interface EskalationsRessource {
+  id: string
+  kategorie: string              // z.B. "Sandsäcke", "Notstromaggregate"
+  menge: string                  // z.B. "500 Stück", "3 Einheiten"
+  prioritaet: 'kritisch' | 'hoch' | 'mittel' | 'niedrig'
+  bereitgestellt: boolean        // Wurde bereits beschafft/bereitgestellt?
+}
+
+export interface EskalationsStufe {
+  stufe: EskalationsStufeNummer
+  name: string                  // "Vorwarnung" | "Akuter Vorfall" | "Katastrophe"
+  beschreibung: string
+  checkliste: EskalationsChecklistItem[]
+  alarmkette: AlarmkettenSchritt[]
+  krisenstab_rollen: string[]   // ["S2", "S5"] etc.
+  // Card-Übersicht (optional für Backward-Kompatibilität)
+  ausloeser?: string[]           // Wann wird diese Stufe aktiviert (mehrere Kriterien)
+  informierte?: string[]        // Wer wird informiert (konkrete Rollen/Behörden)
+  sofortmassnahmen?: string[]   // Sofortmaßnahmen pro Stufe
+  // Erweiterte Felder (v2)
+  kommunikation?: EskalationsKommunikation
+  ressourcen?: EskalationsRessource[]
+  lage_zusammenfassung?: string  // Kurze Lagebeschreibung für diese Stufe
+  eskalations_kriterien?: string[] // Wann wird zur nächsten Stufe eskaliert
+}
+
+// ─── Szenario-Metadaten (operativer Ablauf) ──────────────
+export interface SzenarioMeta {
+  ausloese_kriterien: string[]
+  sofortmassnahmen: string[]
+  zeitphasen: Array<{
+    phase: string          // "0-2h", "2-12h", "12-48h", ">48h"
+    massnahmen: string[]
+  }>
+  prioritaeten: Array<{
+    stufe: 'P1' | 'P2' | 'P3' | 'P4'
+    beschreibung: string
+    massnahmen: string[]
+  }>
+  massnahmenplan?: Massnahmenplan
+  beteiligte_organisationen?: string[]
+  eskalationsstufen?: EskalationsStufe[]
 }
 
 // ─── Szenario-Handbuch V1 (Legacy, KI-generiert) ─────
@@ -238,12 +399,24 @@ export interface DbScenarioPhase {
 export interface DbInventoryItem {
   id: string
   district_id: string
-  category: string
+  category: string                // Artikel-Name (UI: "Artikel")
+  kategorie: string | null        // Breitere Kategorie ("Medizin", "Technik", etc.)
+  priority: 'kritisch' | 'hoch' | 'mittel' | 'niedrig' | null
   target_quantity: number
   current_quantity: number
   unit: string
+  price_per_unit: number | null
   location: string | null
+  municipality_id: string | null  // FK → municipalities
+  condition: 'einsatzbereit' | 'wartung_noetig' | 'defekt' | null
+  last_inspected: string | null
+  responsible: string | null
   created_at: string
+}
+
+export interface DbInventoryScenarioLink {
+  inventory_item_id: string
+  scenario_id: string
 }
 
 export interface DbAlertContact {
@@ -254,6 +427,7 @@ export interface DbAlertContact {
   organization: string | null
   email: string | null
   phone: string | null
+  mobile_phone: string | null
   groups: string[]
   is_active: boolean
   created_at: string
@@ -268,9 +442,16 @@ export interface DbAlert {
   message: string | null
   target_groups: string[]
   channels: string[]
+  scope: 'landkreis' | 'gemeinden'
+  municipality_ids: string[]
+  municipality_names: string[]
   status: string
   sent_at: string | null
   resolved_at: string | null
+  // Gemeinde-Alarmierung
+  source: 'landkreis' | 'gemeinde'
+  source_municipality_id: string | null
+  is_escalated: boolean
   created_at: string
 }
 
@@ -302,6 +483,11 @@ export interface DbDistrictInsert {
   latitude?: number | null
   longitude?: number | null
   last_auto_refresh?: string | null
+  crisis_active?: boolean
+  crisis_scenario_id?: string | null
+  crisis_stufe?: 'vorwarnung' | 'teilaktivierung' | 'vollaktivierung' | null
+  crisis_started_at?: string | null
+  crisis_ended_at?: string | null
 }
 
 export interface DbMunicipalityInsert {
@@ -328,6 +514,22 @@ export interface DbKritisSiteInsert {
   address?: string | null
   risk_exposure?: string | null
   metadata?: Record<string, unknown>
+  // Ansprechpartner vor Ort
+  contact_name?: string | null
+  contact_phone?: string | null
+  contact_email?: string | null
+  // Betreiber
+  operator?: string | null
+  employee_count?: number | null
+  // Notfallbereitschaft
+  has_emergency_plan?: boolean
+  emergency_plan_updated_at?: string | null
+  emergency_plan_notes?: string | null
+  // Resilienz
+  redundancy_level?: 'keine' | 'teilweise' | 'voll' | null
+  has_backup_power?: boolean
+  // Inspektion
+  last_inspected_at?: string | null
 }
 
 export interface DbRiskProfileInsert {
@@ -350,6 +552,7 @@ export interface DbRiskEntryInsert {
 export interface DbScenarioInsert {
   id?: string
   district_id: string
+  municipality_id?: string | null
   title: string
   type: string
   severity?: number
@@ -358,8 +561,10 @@ export interface DbScenarioInsert {
   is_ai_generated?: boolean
   is_edited?: boolean
   is_default?: boolean
-  handbook?: ScenarioHandbook | ScenarioHandbookV2 | null
+  handbook?: ScenarioHandbook | ScenarioHandbookV2 | ScenarioHandbookV3 | null
   is_handbook_generated?: boolean
+  meta?: SzenarioMeta | null
+  updated_at?: string | null
 }
 
 export interface DbScenarioPhaseInsert {
@@ -375,10 +580,17 @@ export interface DbInventoryItemInsert {
   id?: string
   district_id: string
   category: string
+  kategorie?: string | null
+  priority?: 'kritisch' | 'hoch' | 'mittel' | 'niedrig' | null
   target_quantity?: number
   current_quantity?: number
   unit: string
+  price_per_unit?: number | null
   location?: string | null
+  municipality_id?: string | null
+  condition?: 'einsatzbereit' | 'wartung_noetig' | 'defekt' | null
+  last_inspected?: string | null
+  responsible?: string | null
 }
 
 export interface DbAlertContactInsert {
@@ -389,6 +601,7 @@ export interface DbAlertContactInsert {
   organization?: string | null
   email?: string | null
   phone?: string | null
+  mobile_phone?: string | null
   groups?: string[]
   is_active?: boolean
 }
@@ -402,9 +615,16 @@ export interface DbAlertInsert {
   message?: string | null
   target_groups?: string[]
   channels?: string[]
+  scope?: 'landkreis' | 'gemeinden'
+  municipality_ids?: string[]
+  municipality_names?: string[]
   status?: string
   sent_at?: string | null
   resolved_at?: string | null
+  // Gemeinde-Alarmierung
+  source?: 'landkreis' | 'gemeinde'
+  source_municipality_id?: string | null
+  is_escalated?: boolean
 }
 
 export interface DbDocumentInsert {
@@ -455,12 +675,46 @@ export interface DbExternalWarningInsert {
   raw_data?: Record<string, unknown> | null
 }
 
+// ─── Krisen-Events (Crisis Timeline) ────────────────────
+export type CrisisEventType =
+  | 'krise_aktiviert'
+  | 'krise_beendet'
+  | 'stufe_geaendert'
+  | 'alarm_gesendet'
+  | 'massnahme_erledigt'
+  | 'checkliste_aktualisiert'
+  | 'warnung_eingegangen'
+  | 'manueller_eintrag'
+  | 'kontakt_alarmiert'
+  | 'eskalation'
+
+export interface DbCrisisEvent {
+  id: string
+  district_id: string
+  scenario_id: string | null
+  type: CrisisEventType
+  beschreibung: string
+  details: Record<string, unknown>
+  erstellt_von: string | null
+  created_at: string
+}
+
+export interface DbCrisisEventInsert {
+  id?: string
+  district_id: string
+  scenario_id?: string | null
+  type: CrisisEventType
+  beschreibung: string
+  details?: Record<string, unknown>
+  erstellt_von?: string | null
+}
+
 // ─── Checklisten (Krisenstab) ────────────────────────
 
 export interface ChecklistItem {
   id: string
   text: string
-  status: 'open' | 'done' | 'skipped'
+  status: 'open' | 'done' | 'skipped' | 'partial'
   completed_at: string | null
   completed_by: string | null
 }
@@ -469,11 +723,191 @@ export interface DbChecklist {
   id: string
   district_id: string
   scenario_id: string | null
+  municipality_id: string | null
   title: string
   description: string | null
-  category: 'krisenstab' | 'sofortmassnahmen' | 'kommunikation' | 'nachbereitung' | 'custom'
+  category: 'krisenstab' | 'sofortmassnahmen' | 'kommunikation' | 'nachbereitung' | 'custom' | 'vorbereitung'
   items: ChecklistItem[]
   is_template: boolean
   created_at: string
   updated_at: string
+}
+
+// ─── Gemeinde-Portal: Mitglieder + Meldungen ────────────
+
+export type DistrictMemberRole = 'admin' | 'buergermeister'
+export type DistrictMemberStatus = 'invited' | 'active' | 'disabled'
+
+export interface DbDistrictMember {
+  id: string
+  user_id: string | null
+  district_id: string
+  municipality_id: string | null
+  role: DistrictMemberRole
+  invited_by: string | null
+  invited_email: string | null
+  status: DistrictMemberStatus
+  created_at: string
+  activated_at: string | null
+}
+
+export interface DbDistrictMemberInsert {
+  id?: string
+  user_id?: string | null
+  district_id: string
+  municipality_id?: string | null
+  role: DistrictMemberRole
+  invited_by?: string | null
+  invited_email?: string | null
+  status?: DistrictMemberStatus
+  activated_at?: string | null
+}
+
+export type IncidentSeverity = 'niedrig' | 'mittel' | 'hoch' | 'kritisch'
+export type IncidentStatus = 'offen' | 'in_bearbeitung' | 'erledigt' | 'abgelehnt'
+
+export interface DbIncidentReport {
+  id: string
+  district_id: string
+  municipality_id: string
+  reported_by: string
+  title: string
+  description: string | null
+  severity: IncidentSeverity
+  category: string | null
+  status: IncidentStatus
+  admin_notes: string | null
+  latitude: number | null
+  longitude: number | null
+  created_at: string
+  updated_at: string | null
+}
+
+export interface DbIncidentReportInsert {
+  id?: string
+  district_id: string
+  municipality_id: string
+  reported_by: string
+  title: string
+  description?: string | null
+  severity: IncidentSeverity
+  category?: string | null
+  status?: IncidentStatus
+  admin_notes?: string | null
+  latitude?: number | null
+  longitude?: number | null
+}
+
+// ─── Bürger-App: Citizen Inventory ────────────────────────
+
+export type CitizenInventoryCategory =
+  | 'getraenke'
+  | 'lebensmittel'
+  | 'hygiene'
+  | 'medikamente'
+  | 'notfallausruestung'
+  | 'werkzeuge'
+  | 'dokumente'
+  | 'babybedarf'
+  | 'tierbedarf'
+
+export interface DbCitizenInventory {
+  id: string
+  user_id: string
+  category: CitizenInventoryCategory
+  subcategory: string | null
+  item_name: string
+  target_qty: number
+  current_qty: number
+  unit: string
+  expiry_date: string | null
+  purchase_date: string | null
+  product_name: string | null
+  notes: string | null
+  is_checked: boolean
+  is_custom: boolean
+  is_regional: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DbCitizenInventoryInsert {
+  id?: string
+  user_id: string
+  category: CitizenInventoryCategory
+  subcategory?: string | null
+  item_name: string
+  target_qty?: number
+  current_qty?: number
+  unit?: string
+  expiry_date?: string | null
+  purchase_date?: string | null
+  product_name?: string | null
+  notes?: string | null
+  is_checked?: boolean
+  is_custom?: boolean
+  is_regional?: boolean
+  sort_order?: number
+}
+
+// ─── Bürger-App: Household Profile (user_metadata) ────────
+
+export interface CitizenHouseholdProfile {
+  household_persons: number
+  household_babies: number
+  household_seniors: number
+  household_pets: boolean
+  dietary_restrictions: string[]
+  risk_profile: string[]
+  onboarding_completed: boolean
+}
+
+// ─── Nachbarschafts-Netzwerk ─────────────────────────────
+
+export interface DbNeighborhoodProfile {
+  id: string
+  user_id: string
+  display_name: string
+  skills: string[]
+  resources: string[]
+  lat: number
+  lng: number
+  district_id: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DbNeighborhoodProfileInsert {
+  id?: string
+  user_id: string
+  display_name: string
+  skills?: string[]
+  resources?: string[]
+  lat: number
+  lng: number
+  district_id?: string | null
+  is_active?: boolean
+}
+
+export interface DbNeighborhoodRequest {
+  id: string
+  profile_id: string
+  type: 'offer' | 'request'
+  title: string
+  description: string | null
+  category: string
+  is_resolved: boolean
+  created_at: string
+}
+
+export interface DbNeighborhoodRequestInsert {
+  id?: string
+  profile_id: string
+  type: 'offer' | 'request'
+  title: string
+  description?: string | null
+  category: string
+  is_resolved?: boolean
 }

@@ -1,7 +1,54 @@
-import { useState } from 'react'
-import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { AlertTriangle, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
+
+/**
+ * Ermittelt das Redirect-Ziel basierend auf User-Rolle.
+ * - District-Owner → /pro
+ * - Aktiver Bürgermeister → /gemeinde
+ * - Offene Einladung → /invite-accept
+ * - Sonst → /app (Bürger-App)
+ */
+async function getRedirectPath(userId: string, email: string): Promise<string> {
+  // 1. Ist der User District-Owner?
+  const { data: ownedDistrict } = await supabase
+    .from('districts')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+
+  if (ownedDistrict) return '/pro'
+
+  // 2. Hat der User eine aktive Membership?
+  const { data: activeMember } = await supabase
+    .from('district_members')
+    .select('role')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .limit(1)
+    .maybeSingle()
+
+  if (activeMember) {
+    return activeMember.role === 'buergermeister' ? '/gemeinde' : '/pro'
+  }
+
+  // 3. Hat der User eine offene Einladung (per E-Mail)?
+  const { data: invite } = await supabase
+    .from('district_members')
+    .select('id')
+    .eq('invited_email', email)
+    .eq('status', 'invited')
+    .limit(1)
+    .maybeSingle()
+
+  if (invite) return '/invite-accept'
+
+  // 4. Fallback: Bürger-App
+  return '/app'
+}
 
 export default function LoginPage() {
   const { user, loading, signIn } = useAuth()
@@ -12,11 +59,52 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
 
-  // Redirect if already logged in
-  if (!loading && user) {
-    return <Navigate to="/app" replace />
+  // Rollenbasierter Redirect falls User bereits eingeloggt ist
+  const redirectLoggedInUser = useCallback(async () => {
+    if (!user || !user.email) return
+    setIsRedirecting(true)
+    try {
+      const target = await getRedirectPath(user.id, user.email)
+      navigate(target, { replace: true })
+    } catch {
+      navigate('/app', { replace: true })
+    }
+  }, [user, navigate])
+
+  useEffect(() => {
+    if (!loading && user) {
+      redirectLoggedInUser()
+    }
+  }, [loading, user, redirectLoggedInUser])
+
+  // Zeige Loading während Redirect läuft
+  if (!loading && user && isRedirecting) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface-secondary">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary-200 border-t-primary-600" />
+          <p className="text-sm text-text-secondary">Weiterleitung...</p>
+        </div>
+      </div>
+    )
   }
+
+  // Zeige nichts während initial Loading
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-surface-secondary">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary-200 border-t-primary-600" />
+          <p className="text-sm text-text-secondary">Wird geladen...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Wenn User schon eingeloggt ist aber redirect noch nicht fertig → nichts rendern
+  if (user) return null
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,8 +119,25 @@ export default function LoginPage() {
       return
     }
 
-    const from = (location.state as { from?: string })?.from || '/app'
-    navigate(from, { replace: true })
+    // Nach erfolgreichem Login: Rolle ermitteln und redirecten
+    setIsRedirecting(true)
+    try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (currentUser?.email) {
+        // Prüfe ob ein expliziter "from" State existiert
+        const from = (location.state as { from?: string })?.from
+        if (from && from !== '/login' && from !== '/signup') {
+          navigate(from, { replace: true })
+          return
+        }
+        const target = await getRedirectPath(currentUser.id, currentUser.email)
+        navigate(target, { replace: true })
+      } else {
+        navigate('/app', { replace: true })
+      }
+    } catch {
+      navigate('/app', { replace: true })
+    }
   }
 
   return (

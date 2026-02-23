@@ -21,6 +21,7 @@ const categoryConfig: Record<Category, { label: string; bg: string; color: strin
   kommunikation: { label: 'Kommunikation', bg: 'bg-blue-50', color: 'text-blue-600' },
   nachbereitung: { label: 'Nachbereitung', bg: 'bg-green-50', color: 'text-green-600' },
   custom: { label: 'Benutzerdefiniert', bg: 'bg-gray-50', color: 'text-gray-600' },
+  vorbereitung: { label: 'Vorbereitung', bg: 'bg-violet-50', color: 'text-violet-600' },
 }
 
 // ─── Default Templates ───────────────────────────────

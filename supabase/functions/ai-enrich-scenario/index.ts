@@ -2,21 +2,50 @@ import { corsHeaders } from '../_shared/cors.ts'
 import { getAuthenticatedUser, getServiceClient } from '../_shared/auth.ts'
 import { callLangdock } from '../_shared/langdock.ts'
 
-// ─── V2 Response-Typ von der KI ─────────────────────
+// ─── V3 Response-Typ von der KI (12 BSI/BBK-Kapitel) ─────────────────────
 interface AIKapitelResponse {
   nummer: number
+  key: string
   titel: string
   inhalt: string
   checkliste: Array<{ text: string; notiz: string }>
 }
 
-interface AIHandbookResponseV2 {
+interface AIEskalationsStufeResponse {
+  stufe: 1 | 2 | 3
+  name: string
+  beschreibung: string
+  ausloeser: string[]
+  eskalations_kriterien: string[]
+  lage_zusammenfassung: string
+  kommunikation: {
+    intern: string[]
+    extern: string[]
+    kanaele: string[]
+    sprachregelungen: string[]
+  }
+  ressourcen: Array<{
+    kategorie: string
+    menge: string
+    prioritaet: string
+  }>
+  krisenstab_rollen: string[]
+  informierte: string[]
+  sofortmassnahmen: string[]
+}
+
+interface AIHandbookResponseV3 {
   kapitel: AIKapitelResponse[]
   phasen: Array<{
     name: string
     dauer: string
     aufgaben: string[]
   }>
+  massnahmenplan?: {
+    alarmkette: Array<{ rolle: string; kontaktgruppen: string[]; kanaele: string[]; wartezeit_min: number }>
+    aufgaben_zuweisung: Array<{ task_text: string; verantwortlich: string; prioritaet: string }>
+  }
+  eskalationsstufen?: AIEskalationsStufeResponse[]
 }
 
 // ─── Prompt-Builder ───────────────────────────────────
@@ -141,94 +170,202 @@ ${inventarList || '- Kein Inventar vorhanden'}
 ${documentSection}
 ## Anweisungen
 
-Erstelle ein vollständiges Krisenmanagement-Handbuch in **Kapitel-Struktur**. Jedes Kapitel hat:
-- **inhalt**: Ausführlicher Fließtext (mehrzeilig, mit Markdown: ### für Überschriften, - für Listen, **fett** für Hervorhebungen)
+Erstelle ein vollständiges Krisenmanagement-Handbuch nach **BSI/BBK-Standard** in **12-Kapitel-Struktur**. Jedes Kapitel hat:
+- **key**: Semantischer Schlüssel (vorgegeben, NICHT ändern)
+- **inhalt**: Ausführlicher Fließtext als **HTML** (NICHT Markdown!). Verwende: <h3> für Überschriften, <ul><li> für Listen, <strong> für Hervorhebungen, <p> für Absätze, <em> für Kursiv, <a href="..."> für Links. KEIN Markdown, nur reines HTML.
 - **checkliste**: Konkrete abhakbare Aufgaben/Maßnahmen zu diesem Kapitel
 
-### Kapitel 1: Risikobewertung & Gefahrenanalyse
+### Kapitel 1 (key: "einleitung"): Einleitung
 **Inhalt** (Fließtext):
-- Ausführliche Bedrohungsanalyse (5-8 Sätze, spezifisch für diesen Landkreis)
-- Zeile "Eintrittswahrscheinlichkeit: <Niedrig|Mittel|Hoch|Sehr hoch>"
-- Zeile "Schadensausmaß: <Gering|Mittel|Erheblich|Katastrophal>"
-- Zusammenfassende Risikoeinschätzung (3-5 Sätze)
-- Zeile "Betroffene KRITIS-Sektoren: <komma-separierte Liste>"
-**Checkliste** (3-5 Items): Aufgaben zur Risikobewertung
+- Zweck und Zielsetzung des Krisenhandbuchs (3-5 Sätze)
+- Geltungsbereich: Räumlich (Landkreis ${district.name}), zeitlich, personell
+- Rechtsgrundlagen: Relevante Gesetze (z.B. ZSKG, Katastrophenschutzgesetz des Bundeslandes, KRITIS-Verordnung)
+- Abgrenzung zu anderen Plänen (z.B. Gefahrenabwehrplan, Notfallplan)
+**Checkliste** (3-5 Items): Aufgaben zur Dokumentenpflege
 
-### Kapitel 2: Handlungsplan & Einsatzphasen
+### Kapitel 2 (key: "dokumentenmanagement"): Dokumentenmanagement
 **Inhalt** (Fließtext):
-- Pro Phase einen ### Header mit Name und Dauer
-- Darunter die Aufgaben als - Bullet-Points
-- 4-6 zeitlich geordnete Phasen: Sofortmaßnahmen → Erstreaktion → Krisenbewältigung → Stabilisierung → Nachsorge
-**Checkliste** (8-15 Items): Die wichtigsten Aufgaben aus allen Phasen
+- Versionierungsschema (Version, Datum, Änderungen, Freigabe)
+- Verteilerliste: Wer erhält welche Version (Krisenstab, Gemeinden, BOS)
+- Aktualisierungsrhythmus (mindestens jährlich + nach jedem Krisenereignis)
+- Aufbewahrung: Digital + physisch an Ausweichstandorten
+**Checkliste** (3-5 Items): Dokumentenmanagement-Aufgaben
 
-### Kapitel 3: Krisenstab & Verantwortlichkeiten
+### Kapitel 3 (key: "krisenorganisation"): Krisenorganisation
 **Inhalt** (Fließtext):
 - Pro Stabsfunktion (S1–S6) einen ### Header
 - Kontaktgruppe wenn passend (aus: ${kontaktGruppen})
 - 4-6 konkrete Aufgaben als - Bullets pro Funktion
 - S1 Personal, S2 Lage, S3 Einsatz, S4 Versorgung, S5 Presse/Medien, S6 IT/Kommunikation
+- ### Organigramm (Beschreibung der Aufbauorganisation)
+- ### Stellvertreterregelung
 **Checkliste** (10-18 Items): Wichtigste Aufgaben aller S1-S6 mit [S1]–[S6] Prefix
 
-### Kapitel 4: Krisenkommunikation
+### Kapitel 4 (key: "aktivierung"): Aktivierung
+**Inhalt** (Fließtext):
+- ### Auslösekriterien (3-5 konkrete Schwellenwerte/Indikatoren, wann wird aktiviert)
+- ### Aktivierungsstufen (Vorwarnung → Teilaktivierung → Vollaktivierung)
+- ### Sofortmaßnahmen (erste 30/60 Minuten, 5-8 konkrete Schritte)
+- ### Wenn-Dann-Regeln (4-6 Regeln: Trigger → Maßnahmen → Eskalation)
+**Checkliste** (8-12 Items): Aktivierungs- und Sofortmaßnahmen-Tasks
+
+### Kapitel 5 (key: "lagefuehrung"): Lageführung
+**Inhalt** (Fließtext):
+- ### Lagebild (Ausführliche Bedrohungsanalyse, 5-8 Sätze, spezifisch für diesen Landkreis)
+- Zeile "Eintrittswahrscheinlichkeit: <Niedrig|Mittel|Hoch|Sehr hoch>"
+- Zeile "Schadensausmaß: <Gering|Mittel|Erheblich|Katastrophal>"
+- ### Risikobewertung (Zusammenfassende Risikoeinschätzung, 3-5 Sätze)
+- Zeile "Betroffene KRITIS-Sektoren: <komma-separierte Liste>"
+- ### Lageberichte (Format, Taktung, Verteiler)
+- ### Prognose und Lageentwicklung
+**Checkliste** (5-8 Items): Lageführungs-Aufgaben
+
+### Kapitel 6 (key: "alarmierung_kommunikation"): Alarmierung und Kommunikation
 **Inhalt** (Fließtext):
 - ### Interne Kommunikation – Sofortmeldungen (3-5 Items)
 - ### Interne Kommunikation – Laufend (3-5 Items)
 - ### Externe Kommunikation – Bevölkerung (3-5 Items)
 - ### Externe Kommunikation – Medien (2-4 Items)
 - ### Externe Kommunikation – Behörden (2-4 Items)
-- ### Kommunikationskanäle (z.B. NINA, Lautsprecher, Social Media, Website)
+- ### Warnmittel (NINA, Sirenen, Lautsprecherdurchsagen, Social Media, Website)
 - ### Sprachregelungen (3-5 vorformulierte Kernaussagen als „Zitate")
 **Checkliste** (8-12 Items): Wichtigste Kommunikationsmaßnahmen
 
-### Kapitel 5: Eskalationsstufen & Wenn-Dann-Regeln
-**Inhalt** (Fließtext):
-- 4-6 Wenn-Dann-Regeln
-- Pro Regel: ### Wenn: <Trigger>
-- Dann: (als - Bullets, 2-4 Maßnahmen)
-- Eskalation: <Was wenn Maßnahmen nicht greifen>
-**Checkliste** (4-6 Items): Pro Regel "Regel prüfen: <Trigger>"
-
-### Kapitel 6: Prävention & Vorbereitung
-**Inhalt** (Fließtext):
-- ### Vorbereitung (5-8 Maßnahmen als - Bullets)
-- ### Frühwarnung (3-5 Maßnahmen)
-- ### Schulungen (3-5 Maßnahmen)
-- ### Materialvorhaltung (3-5 Maßnahmen)
-**Checkliste** (10-15 Items): Alle Maßnahmen mit [Vorbereitung]/[Frühwarnung]/[Schulung]/[Material] Prefix
-
-### Kapitel 7: Material & Ressourcen
+### Kapitel 7 (key: "ressourcenmanagement"): Ressourcenmanagement
 **Inhalt** (Fließtext):
 - 8-15 Materialkategorien als - Bullets
 - Format: - **Kategorie**: Menge Einheit – Begründung
 - Basierend auf Bevölkerungszahl, Schweregrad, bestehendem Inventar
 - Einheiten: Stück, kg, Liter, Paletten, Karton, Satz
+- ### Personalplanung (Schichtmodell, Ablösung, Ruhezeiten)
+- ### Logistik und Versorgung
 **Checkliste** (8-15 Items): Pro Material "Kategorie: Menge Einheit beschaffen/prüfen"
 
+### Kapitel 8 (key: "schutz_kritischer_funktionen"): Schutz kritischer Funktionen
+**Inhalt** (Fließtext):
+- ### KRITIS-Übersicht (betroffene Sektoren und Objekte aus dem Landkreis)
+- Pro relevantem KRITIS-Sektor: Gefährdung und Schutzmaßnahmen (3-5 Sätze)
+- ### Präventionsmaßnahmen (5-8 Maßnahmen als - Bullets)
+- ### Frühwarnindikatoren (3-5 Indikatoren)
+- ### Schutzkonzepte (Redundanz, Ausweichoptionen, Notversorgung)
+**Checkliste** (8-12 Items): KRITIS-Schutzmaßnahmen
+
+### Kapitel 9 (key: "notfallarbeitsplaetze"): Notfallarbeitsplätze
+**Inhalt** (Fließtext):
+- ### Ausweichstandorte (2-3 mögliche Standorte mit Anforderungen)
+- ### IT-Notfallarbeitsplatz (minimale IT-Ausstattung, Kommunikationsmittel)
+- ### Bürgertelefon / Bürgerinformation (Einrichtung, Personal, Betriebszeiten)
+- ### Sammelstellen und Betreuungsplätze
+**Checkliste** (5-8 Items): Aufbau-Aufgaben für Notfallarbeitsplätze
+
+### Kapitel 10 (key: "wiederherstellung"): Wiederherstellung
+**Inhalt** (Fließtext):
+- ### Priorisierung (Was wird zuerst wiederhergestellt, P1-P4 Kategorien)
+- ### Phasenmodell (Sofort → Kurzfristig → Mittelfristig → Langfristig)
+- ### Kriterien für Rückkehr zum Normalbetrieb (3-5 konkrete Indikatoren)
+- ### Übergabe an Regelbetrieb
+**Checkliste** (5-8 Items): Wiederherstellungs-Maßnahmen
+
+### Kapitel 11 (key: "dokumentation"): Dokumentation
+**Inhalt** (Fließtext):
+- ### Ereignis-Logbuch (Format: Datum/Uhrzeit, Ereignis, Maßnahme, Verantwortlich)
+- ### Entscheidungsprotokoll (Wer hat was wann entschieden, Begründung)
+- ### Kommunikationsprotokoll (Ein-/Ausgehende Nachrichten, Zeitstempel)
+- ### Schadensdokumentation (Fotos, Berichte, Gutachten)
+**Checkliste** (4-6 Items): Dokumentations-Aufgaben
+
+### Kapitel 12 (key: "nachbereitung"): Nachbereitung
+**Inhalt** (Fließtext):
+- ### Lessons Learned (Strukturierter Auswertungsprozess)
+- ### Hot Wash-up (Sofort-Nachbesprechung innerhalb 48h)
+- ### Übungsplan (Jährliche Übungstypen: Stabsrahmenübung, Vollübung, Planspiel)
+- ### Verbesserungsmaßnahmen (Dokumentierte Verbesserungen, Verantwortlichkeiten, Fristen)
+**Checkliste** (5-8 Items): Nachbereitungs-Aufgaben
+
 ### Zusätzlich: Einsatzphasen (für separaten Handlungsplan-Tab)
-- 4-6 Phasen mit Name, Dauer und 3-6 Aufgaben
+- 4-6 zeitlich geordnete Einsatzphasen mit Name, Dauer und 3-6 Aufgaben
+- Phasen: Sofortmaßnahmen → Erstreaktion → Krisenbewältigung → Stabilisierung → Nachsorge
+
+### Zusätzlich: Maßnahmenplan (operativer Ablauf)
+Erstelle einen operativen Maßnahmenplan mit:
+1. **Alarmierungskette** (4-8 Schritte): Wer wird in welcher Reihenfolge über welchen Kanal alarmiert
+   - S3 (Einsatz) typischerweise zuerst, S5 (Presse) erst bei Teilaktivierung/Vollaktivierung
+   - Kontaktgruppen aus bestehenden Gruppen: ${kontaktGruppen}
+   - Kanäle: telefon, email, funk, nina, sirene, messenger
+2. **Aufgaben-Zuweisung**: Welche S-Funktion (S1-S6 oder "Alle") ist für welche Phase-Aufgabe verantwortlich
+   - task_text muss exakt den Aufgabentexten aus den Phasen entsprechen
+   - prioritaet: sofort, hoch, mittel, niedrig
+
+### Zusätzlich: 3 Eskalationsstufen (operatives Stufenmodell)
+Erstelle 3 Eskalationsstufen mit steigender Intensität:
+- **Stufe 1 "Vorwarnung"**: Frühwarnung, Lage beobachten, Bereitschaft erhöhen
+- **Stufe 2 "Akuter Vorfall"**: Sofortmaßnahmen, Krisenstab einberufen, Bevölkerung warnen
+- **Stufe 3 "Katastrophe"**: Vollalarm, Evakuierung, externe Hilfe anfordern
+
+Pro Stufe:
+- **ausloeser**: 3 konkrete szenario-spezifische Auslösekriterien
+- **eskalations_kriterien**: 2-3 Kriterien wann zur nächsten Stufe eskaliert wird (Stufe 3: leer)
+- **lage_zusammenfassung**: 2-3 Sätze, die die typische Lage auf dieser Stufe beschreiben
+- **kommunikation**: intern (3-4 Maßnahmen), extern (2-4 Maßnahmen), kanaele (aus: Telefon, E-Mail, Funk, NINA, Sirene, Lautsprecherdurchsage, Social Media, Presse, Website, Messenger), sprachregelungen (1-2 vorformulierte Sätze pro Stufe)
+- **ressourcen**: 3-6 konkrete Ressourcen mit kategorie, menge (z.B. "500 Stück"), prioritaet (kritisch, hoch, mittel, niedrig) — passend zum Szenario und zur Stufe (Stufe 1 weniger, Stufe 3 mehr)
+- **krisenstab_rollen**: Welche S-Funktionen aktiv sind (Stufe 1: wenige, Stufe 3: alle S1-S6)
+- **informierte**: Wer wird informiert (3-5 Stellen/Rollen)
+- **sofortmassnahmen**: 3-5 konkrete Sofortmaßnahmen
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format (kein Markdown, kein Text drumherum):
 {
   "kapitel": [
     {
       "nummer": 1,
-      "titel": "Risikobewertung & Gefahrenanalyse",
-      "inhalt": "<mehrzeiliger Fließtext mit Markdown>",
+      "key": "einleitung",
+      "titel": "Einleitung",
+      "inhalt": "<h3>Überschrift</h3><p>Fließtext als HTML</p><ul><li>Listenpunkt</li></ul>",
       "checkliste": [
         { "text": "<konkrete Aufgabe>", "notiz": "" },
         ...
       ]
     },
-    {
-      "nummer": 2,
-      "titel": "Handlungsplan & Einsatzphasen",
-      "inhalt": "...",
-      "checkliste": [...]
-    },
-    ...
+    { "nummer": 2, "key": "dokumentenmanagement", ... },
+    { "nummer": 3, "key": "krisenorganisation", ... },
+    { "nummer": 4, "key": "aktivierung", ... },
+    { "nummer": 5, "key": "lagefuehrung", ... },
+    { "nummer": 6, "key": "alarmierung_kommunikation", ... },
+    { "nummer": 7, "key": "ressourcenmanagement", ... },
+    { "nummer": 8, "key": "schutz_kritischer_funktionen", ... },
+    { "nummer": 9, "key": "notfallarbeitsplaetze", ... },
+    { "nummer": 10, "key": "wiederherstellung", ... },
+    { "nummer": 11, "key": "dokumentation", ... },
+    { "nummer": 12, "key": "nachbereitung", ... }
   ],
   "phasen": [
     { "name": "<string>", "dauer": "<string>", "aufgaben": ["...", ...] }
+  ],
+  "massnahmenplan": {
+    "alarmkette": [
+      { "rolle": "S3 – Einsatz", "kontaktgruppen": ["Krisenstab"], "kanaele": ["telefon","funk"], "wartezeit_min": 0 },
+      ...
+    ],
+    "aufgaben_zuweisung": [
+      { "task_text": "<exakter Task-Text aus Phasen>", "verantwortlich": "S3", "prioritaet": "sofort" },
+      ...
+    ]
+  },
+  "eskalationsstufen": [
+    {
+      "stufe": 1,
+      "name": "Vorwarnung",
+      "beschreibung": "...",
+      "ausloeser": ["...", "...", "..."],
+      "eskalations_kriterien": ["...", "..."],
+      "lage_zusammenfassung": "...",
+      "kommunikation": { "intern": ["..."], "extern": ["..."], "kanaele": ["Telefon", "E-Mail"], "sprachregelungen": ["..."] },
+      "ressourcen": [{ "kategorie": "...", "menge": "...", "prioritaet": "hoch" }],
+      "krisenstab_rollen": ["S2", "S5"],
+      "informierte": ["..."],
+      "sofortmassnahmen": ["..."]
+    },
+    { "stufe": 2, "name": "Akuter Vorfall", ... },
+    { "stufe": 3, "name": "Katastrophe", ... }
   ]
 }`
 }
@@ -378,7 +515,7 @@ Deno.serve(async (req) => {
       documentText
     )
 
-    console.log(`KI-Handbuch V2 generieren für Szenario "${scenario.title}" (District: ${district.name})${documentId ? ' [mit Dokument-Kontext]' : ''}`)
+    console.log(`KI-Handbuch V3 generieren für Szenario "${scenario.title}" (District: ${district.name})${documentId ? ' [mit Dokument-Kontext]' : ''}`)
 
     // 12. Langdock API aufrufen
     const aiResponse = await callLangdock(
@@ -387,27 +524,35 @@ Deno.serve(async (req) => {
         {
           role: 'user',
           content: documentText
-            ? `Ergänze und strukturiere den bestehenden Handlungsplan zu einem vollständigen Krisenmanagement-Handbuch (V2 Kapitel-Format) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`
-            : `Erstelle jetzt das vollständige Krisenmanagement-Handbuch (V2 Kapitel-Format) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`,
+            ? `Ergänze und strukturiere den bestehenden Handlungsplan zu einem vollständigen BSI/BBK-konformen Krisenmanagement-Handbuch (V3 mit 12 Kapiteln) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`
+            : `Erstelle jetzt das vollständige BSI/BBK-konforme Krisenmanagement-Handbuch (V3 mit 12 Kapiteln) für das Szenario "${scenario.title}" im Landkreis ${district.name} als JSON.`,
         },
       ],
-      { max_tokens: 10240 }
+      { max_tokens: 16384 }
     )
 
     // 13. JSON parsen
-    const aiResult: AIHandbookResponseV2 = JSON.parse(aiResponse)
+    const aiResult: AIHandbookResponseV3 = JSON.parse(aiResponse)
 
     // 14. Validieren
     if (!aiResult.kapitel || !Array.isArray(aiResult.kapitel) || aiResult.kapitel.length === 0) {
       throw new Error('KI-Antwort hat ein ungültiges Format. Keine Kapitel vorhanden.')
     }
 
-    // 15. V2-Handbook aufbauen mit IDs und Status
-    const handbookV2 = {
-      version: 2 as const,
+    // 15. V3-Handbook aufbauen mit IDs, Keys und Status
+    const V3_KAPITEL_KEYS = [
+      'einleitung', 'dokumentenmanagement', 'krisenorganisation', 'aktivierung',
+      'lagefuehrung', 'alarmierung_kommunikation', 'ressourcenmanagement',
+      'schutz_kritischer_funktionen', 'notfallarbeitsplaetze', 'wiederherstellung',
+      'dokumentation', 'nachbereitung',
+    ]
+
+    const handbookV3 = {
+      version: 3 as const,
       kapitel: aiResult.kapitel.map((kap) => ({
         id: `kap-${kap.nummer}`,
         nummer: kap.nummer,
+        key: kap.key || V3_KAPITEL_KEYS[kap.nummer - 1] || `kapitel-${kap.nummer}`,
         titel: kap.titel,
         inhalt: kap.inhalt || '',
         checkliste: (kap.checkliste || []).map((item) => ({
@@ -425,7 +570,7 @@ Deno.serve(async (req) => {
     const { data: updatedScenario, error: updateError } = await supabase
       .from('scenarios')
       .update({
-        handbook: handbookV2,
+        handbook: handbookV3,
         is_handbook_generated: true,
       })
       .eq('id', scenarioId)
@@ -437,8 +582,8 @@ Deno.serve(async (req) => {
       throw new Error('Fehler beim Speichern des Handbuchs.')
     }
 
-    const totalChecklistItems = handbookV2.kapitel.reduce((sum, k) => sum + k.checkliste.length, 0)
-    console.log(`KI-Handbuch V2 erstellt für "${scenario.title}" – ${handbookV2.kapitel.length} Kapitel, ${totalChecklistItems} Checklisten-Items`)
+    const totalChecklistItems = handbookV3.kapitel.reduce((sum, k) => sum + k.checkliste.length, 0)
+    console.log(`KI-Handbuch V3 erstellt für "${scenario.title}" – ${handbookV3.kapitel.length} Kapitel, ${totalChecklistItems} Checklisten-Items`)
 
     // 17. Phasen: bestehende löschen + neue aus KI einfügen
     try {
@@ -463,7 +608,77 @@ Deno.serve(async (req) => {
       console.warn('Phasen-Insert fehlgeschlagen (non-blocking):', phaseErr)
     }
 
-    // 18. Ergebnis zurückgeben (keine Auto-Checklisten mehr – leben jetzt in Kapiteln)
+    // 18. Maßnahmenplan + Eskalationsstufen in scenarios.meta speichern (non-blocking)
+    try {
+      const currentMeta = (updatedScenario.meta as Record<string, unknown>) || {}
+      const metaUpdate: Record<string, unknown> = { ...currentMeta }
+
+      // Maßnahmenplan
+      if (aiResult.massnahmenplan) {
+        const alarmkette = (aiResult.massnahmenplan.alarmkette || []).map((schritt, idx) => ({
+          id: crypto.randomUUID(),
+          reihenfolge: idx + 1,
+          rolle: schritt.rolle,
+          kontaktgruppen: schritt.kontaktgruppen || [],
+          kanaele: schritt.kanaele || [],
+          wartezeit_min: schritt.wartezeit_min || 0,
+          bedingung: null,
+        }))
+        const aufgaben_zuweisung = (aiResult.massnahmenplan.aufgaben_zuweisung || []).map(z => ({
+          task_text: z.task_text,
+          verantwortlich: z.verantwortlich || null,
+          prioritaet: z.prioritaet || 'mittel',
+        }))
+        metaUpdate.massnahmenplan = {
+          alarmkette,
+          aufgaben_zuweisung,
+          generated_at: new Date().toISOString(),
+          last_edited: null,
+        }
+        console.log(`Maßnahmenplan: ${alarmkette.length} Alarmketten-Schritte, ${aufgaben_zuweisung.length} Zuweisungen`)
+      }
+
+      // Eskalationsstufen (NEU)
+      if (aiResult.eskalationsstufen?.length === 3) {
+        const eskalationsstufen = aiResult.eskalationsstufen.map(es => ({
+          stufe: es.stufe,
+          name: es.name,
+          beschreibung: es.beschreibung || '',
+          checkliste: [],
+          alarmkette: [],  // Wird aus massnahmenplan.alarmkette befüllt
+          krisenstab_rollen: es.krisenstab_rollen || [],
+          ausloeser: es.ausloeser || [],
+          informierte: es.informierte || [],
+          sofortmassnahmen: es.sofortmassnahmen || [],
+          eskalations_kriterien: es.eskalations_kriterien || [],
+          lage_zusammenfassung: es.lage_zusammenfassung || '',
+          kommunikation: {
+            intern: es.kommunikation?.intern || [],
+            extern: es.kommunikation?.extern || [],
+            kanaele: es.kommunikation?.kanaele || [],
+            sprachregelungen: es.kommunikation?.sprachregelungen || [],
+          },
+          ressourcen: (es.ressourcen || []).map(r => ({
+            id: crypto.randomUUID(),
+            kategorie: r.kategorie,
+            menge: r.menge,
+            prioritaet: r.prioritaet || 'mittel',
+            bereitgestellt: false,
+          })),
+        }))
+        metaUpdate.eskalationsstufen = eskalationsstufen
+        console.log(`Eskalationsstufen generiert: ${eskalationsstufen.map(s => `Stufe ${s.stufe}: ${s.ressourcen.length} Ressourcen, ${s.kommunikation.intern.length}+${s.kommunikation.extern.length} Kommunikation`).join(', ')}`)
+      }
+
+      await supabase
+        .from('scenarios')
+        .update({ meta: metaUpdate })
+        .eq('id', scenarioId)
+    } catch (mpErr) {
+      console.warn('Meta-Save fehlgeschlagen (non-blocking):', mpErr)
+    }
+
+    // 19. Ergebnis zurückgeben (keine Auto-Checklisten mehr – leben jetzt in Kapiteln)
     return new Response(
       JSON.stringify({
         success: true,

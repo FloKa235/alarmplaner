@@ -24,6 +24,13 @@ export interface DefaultScenarioInventarItem {
   prioritaet: 'Kritisch' | 'Hoch' | 'Mittel' | 'Niedrig'
 }
 
+export interface DefaultAlarmkettenSchritt {
+  rolle: string
+  kontaktgruppen: string[]
+  kanaele: ('telefon' | 'email' | 'funk' | 'nina' | 'sirene' | 'messenger')[]
+  wartezeit_min: number
+}
+
 export interface DefaultScenarioTemplate {
   title: string
   type: string
@@ -31,6 +38,7 @@ export interface DefaultScenarioTemplate {
   description: string
   phases: DefaultScenarioPhase[]
   inventar?: DefaultScenarioInventarItem[]
+  alarmkette?: DefaultAlarmkettenSchritt[]
 }
 
 export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
@@ -94,6 +102,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'LED-Flutlichtstrahler 50W', pro_10k_einwohner: 10, einheit: 'Stück', begruendung: 'Ausleuchtung der Einsatzstellen bei Nacht', bereich: 'Beleuchtung', prioritaet: 'Kritisch' },
       { kategorie: 'Feldbetten (klappbar)', pro_10k_einwohner: 350, einheit: 'Stück', begruendung: 'Notunterkünfte für evakuierte Personen', bereich: 'Unterkunft und Betreuung', prioritaet: 'Kritisch' },
     ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab', 'Feuerwehr'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Bauhof'], kanaele: ['telefon', 'email'], wartezeit_min: 5 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 10 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina'], wartezeit_min: 30 },
+    ],
   },
 
   // ─── 2. Schwerer Sturm / Orkan ──────────────────
@@ -151,6 +167,13 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Greifzüge & Seilwinden', pro_10k_einwohner: 10, einheit: 'Stück', begruendung: 'Räumung schwerer Hindernisse', bereich: 'Werkzeug', prioritaet: 'Hoch' },
       { kategorie: 'Feldbetten (klappbar)', pro_10k_einwohner: 350, einheit: 'Stück', begruendung: 'Notunterkünfte bei unbewohnbaren Gebäuden', bereich: 'Unterkunft und Betreuung', prioritaet: 'Kritisch' },
     ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab', 'Feuerwehr'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Bauhof'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina'], wartezeit_min: 30 },
+    ],
   },
 
   // ─── 3. Extreme Hitzewelle ──────────────────────
@@ -202,6 +225,12 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Elektrolytpulver', pro_10k_einwohner: 2000, einheit: 'Stück', begruendung: 'Prävention von Elektrolytverlust', bereich: 'Erste Hilfe', prioritaet: 'Hoch' },
       { kategorie: 'Pavillons (3x3m, faltbar)', pro_10k_einwohner: 100, einheit: 'Stück', begruendung: 'Sonnenschutz an Ausgabestellen', bereich: 'Unterkunft und Betreuung', prioritaet: 'Mittel' },
       { kategorie: 'Informationsplakate', pro_10k_einwohner: 5000, einheit: 'Stück', begruendung: 'Verhaltenshinweise für Bevölkerung', bereich: 'Information', prioritaet: 'Hoch' },
+    ],
+    alarmkette: [
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'Gesundheitsamt'], kanaele: ['telefon', 'email'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Pflegeheime', 'Krankenhäuser'], kanaele: ['telefon', 'email'], wartezeit_min: 5 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina'], wartezeit_min: 10 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 15 },
     ],
   },
 
@@ -255,6 +284,13 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Notstromaggregat 5-10 kVA', pro_10k_einwohner: 2, einheit: 'Stück', begruendung: 'Notstrom für Heizungsanlagen', bereich: 'Stromerzeugung', prioritaet: 'Hoch' },
       { kategorie: 'Diesel', pro_10k_einwohner: 3000, einheit: 'Liter', begruendung: 'Betrieb Notstromaggregate und Heizgeräte', bereich: 'Kraftstoff & Betriebsstoffe', prioritaet: 'Kritisch' },
       { kategorie: 'Notverpflegung (Langzeitlebensmittel)', pro_10k_einwohner: 2500, einheit: 'Stück', begruendung: 'Warme Mahlzeiten bei Versorgungsausfällen', bereich: 'Lebensmittel und Verpflegung', prioritaet: 'Kritisch' },
+    ],
+    alarmkette: [
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'Winterdienst'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Krisenstab', 'Pflegeheime'], kanaele: ['telefon', 'email'], wartezeit_min: 5 },
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab', 'THW'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina'], wartezeit_min: 15 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 15 },
     ],
   },
 
@@ -312,6 +348,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Trinkwasserkanister', pro_10k_einwohner: 50, einheit: 'Stück', begruendung: 'Versorgung der Einsatzkräfte', bereich: 'Wasser und Trinkwasser', prioritaet: 'Kritisch' },
       { kategorie: 'Drohne mit Wärmebildkamera', pro_10k_einwohner: 2, einheit: 'Stück', begruendung: 'Großräumige Brandbeobachtung', bereich: 'Brandschutz Ausrüstung', prioritaet: 'Hoch' },
       { kategorie: 'Feldbetten (klappbar)', pro_10k_einwohner: 350, einheit: 'Stück', begruendung: 'Notunterkünfte für Evakuierte', bereich: 'Unterkunft und Betreuung', prioritaet: 'Kritisch' },
+    ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Feuerwehr', 'Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'Forstamt'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Bundeswehr'], kanaele: ['telefon', 'funk'], wartezeit_min: 10 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina', 'sirene'], wartezeit_min: 15 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
     ],
   },
 
@@ -371,6 +415,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Absperrband', pro_10k_einwohner: 50, einheit: 'Rollen', begruendung: 'Absperrung des Tatorts', bereich: 'Kennzeichnung', prioritaet: 'Hoch' },
       { kategorie: 'Warnwesten', pro_10k_einwohner: 200, einheit: 'Stück', begruendung: 'Kennzeichnung von Einsatzkräften', bereich: 'Schutzausrüstung', prioritaet: 'Hoch' },
     ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Polizei', 'Rettungsdienst', 'Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Krankenhäuser', 'PSNV'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['telefon', 'email'], wartezeit_min: 15 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+    ],
   },
 
   // ─── 7. CBRN-Lage ──────────────────────────────
@@ -424,6 +476,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Händedesinfektionsmittel', pro_10k_einwohner: 10, einheit: 'Flaschen', begruendung: 'Dekontamination von Personen', bereich: 'Desinfektion', prioritaet: 'Mittel' },
       { kategorie: 'Absperrband', pro_10k_einwohner: 50, einheit: 'Rollen', begruendung: 'Einrichtung von Sperrzonen', bereich: 'Kennzeichnung', prioritaet: 'Hoch' },
       { kategorie: 'Verkehrsleitkegel', pro_10k_einwohner: 500, einheit: 'Stück', begruendung: 'Absperrung kontaminierter Bereiche', bereich: 'Verkehrslenkung', prioritaet: 'Hoch' },
+    ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Feuerwehr', 'Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'Gesundheitsamt'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Krankenhäuser'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina', 'sirene'], wartezeit_min: 10 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
     ],
   },
 
@@ -480,6 +540,13 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Kontaktlisten (Papier)', pro_10k_einwohner: 50, einheit: 'Stück', begruendung: 'Offline-Erreichbarkeit aller Kontakte', bereich: 'Papierbasierte Systeme', prioritaet: 'Kritisch' },
       { kategorie: 'BOS-Funkgeräte', pro_10k_einwohner: 5, einheit: 'Stück', begruendung: 'Kommunikation bei IT-Totalausfall', bereich: 'Kommunikation', prioritaet: 'Kritisch' },
       { kategorie: 'Satellitentelefone', pro_10k_einwohner: 3, einheit: 'Stück', begruendung: 'Kommunikation bei Netzwerkausfall', bereich: 'Kommunikation', prioritaet: 'Kritisch' },
+    ],
+    alarmkette: [
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab', 'IT-Abteilung'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'BSI'], kanaele: ['telefon', 'email'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 15 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email'], wartezeit_min: 30 },
     ],
   },
 
@@ -538,6 +605,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Sirenenanlagen', pro_10k_einwohner: 5, einheit: 'Stück', begruendung: 'Zivilschutzwarnung der Bevölkerung', bereich: 'Kommunikation', prioritaet: 'Kritisch' },
       { kategorie: 'Zelte (Großraumzelt 50 Personen)', pro_10k_einwohner: 70, einheit: 'Stück', begruendung: 'Notunterkünfte und Versammlungsräume', bereich: 'Unterkunft und Betreuung', prioritaet: 'Hoch' },
     ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab', 'Bundeswehr'], kanaele: ['telefon', 'funk', 'sirene'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Bundeswehr'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['nina', 'sirene', 'email'], wartezeit_min: 10 },
+    ],
   },
 
   // ─── 10. Pandemie ───────────────────────────────
@@ -594,6 +669,13 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Infektiöse Abfallsäcke', pro_10k_einwohner: 50, einheit: 'Stück', begruendung: 'Sichere Entsorgung kontaminierter Materialien', bereich: 'Infektionsschutz', prioritaet: 'Mittel' },
       { kategorie: 'Abwurfbehälter für Kanülen/Spritzen', pro_10k_einwohner: 10, einheit: 'Stück', begruendung: 'Sichere Entsorgung medizinischer Abfälle', bereich: 'Infektionsschutz', prioritaet: 'Mittel' },
     ],
+    alarmkette: [
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Gesundheitsamt', 'Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Krankenhäuser', 'Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 10 },
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 15 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien', 'RKI'], kanaele: ['email', 'nina'], wartezeit_min: 30 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 30 },
+    ],
   },
 
   // ─── 11. Sabotage ───────────────────────────────
@@ -647,6 +729,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'LED-Flutlichtstrahler 50W', pro_10k_einwohner: 10, einheit: 'Stück', begruendung: 'Ausleuchtung bei Stromausfällen an KRITIS', bereich: 'Beleuchtung', prioritaet: 'Kritisch' },
       { kategorie: 'Diesel', pro_10k_einwohner: 3000, einheit: 'Liter', begruendung: 'Treibstoff für Notstromaggregate', bereich: 'Kraftstoff & Betriebsstoffe', prioritaet: 'Kritisch' },
       { kategorie: 'Kraftstoffkanister (20L)', pro_10k_einwohner: 200, einheit: 'Stück', begruendung: 'Transport und Lagerung Kraftstoff', bereich: 'Kraftstoff & Betriebsstoffe', prioritaet: 'Mittel' },
+    ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Polizei', 'Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab', 'Verfassungsschutz'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Netzbetreiber', 'THW'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina'], wartezeit_min: 20 },
     ],
   },
 
@@ -716,6 +806,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Trinkwasser Flaschen', pro_10k_einwohner: 1000, einheit: 'Flaschen', begruendung: 'Trinkwasserversorgung bei Ausfall der Wasserwerke', bereich: 'Wasser und Trinkwasser', prioritaet: 'Kritisch' },
       { kategorie: 'Feldbetten (klappbar)', pro_10k_einwohner: 350, einheit: 'Stück', begruendung: 'Wärmehallen und Betreuungsstellen', bereich: 'Unterkunft und Betreuung', prioritaet: 'Kritisch' },
     ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Krisenstab', 'Feuerwehr'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['THW', 'Netzbetreiber'], kanaele: ['telefon', 'email'], wartezeit_min: 5 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon', 'email'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['email', 'nina', 'sirene'], wartezeit_min: 15 },
+    ],
   },
 
   // ─── 13. Terroranschlag ─────────────────────────
@@ -770,6 +868,14 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { kategorie: 'Megaphone', pro_10k_einwohner: 5, einheit: 'Stück', begruendung: 'Lautsprecherdurchsagen zur Evakuierung', bereich: 'Kommunikation', prioritaet: 'Hoch' },
       { kategorie: 'Absperrband', pro_10k_einwohner: 100, einheit: 'Rollen', begruendung: 'Weiträumige Absperrung des Gefahrenbereichs', bereich: 'Kennzeichnung', prioritaet: 'Hoch' },
       { kategorie: 'Warnwesten', pro_10k_einwohner: 200, einheit: 'Stück', begruendung: 'Kennzeichnung aller Einsatzkräfte', bereich: 'Schutzausrüstung', prioritaet: 'Hoch' },
+    ],
+    alarmkette: [
+      { rolle: 'S3 – Einsatz', kontaktgruppen: ['Polizei', 'Rettungsdienst', 'Krisenstab'], kanaele: ['telefon', 'funk'], wartezeit_min: 0 },
+      { rolle: 'S2 – Lage', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 0 },
+      { rolle: 'S4 – Versorgung', kontaktgruppen: ['Krankenhäuser', 'PSNV'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S6 – IT/Kommunikation', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 5 },
+      { rolle: 'S1 – Personal', kontaktgruppen: ['Krisenstab'], kanaele: ['telefon'], wartezeit_min: 10 },
+      { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['telefon', 'email'], wartezeit_min: 15 },
     ],
   },
 ]
