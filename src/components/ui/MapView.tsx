@@ -115,6 +115,13 @@ export default function MapView({
       m.addTo(mapRef.current!)
       markersRef.current.push(m)
     })
+
+    // Fit bounds to visible markers
+    if (markers.length > 0) {
+      const bounds = new mapboxgl.LngLatBounds()
+      markers.forEach((marker) => bounds.extend([marker.lng, marker.lat]))
+      mapRef.current.fitBounds(bounds, { padding: 50, maxZoom: 14 })
+    }
   }, [markers])
 
   // Fallback when no Mapbox token

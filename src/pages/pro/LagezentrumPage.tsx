@@ -138,7 +138,7 @@ export default function LagezentrumPage() {
               Akut-Checklisten
             </h2>
             <Link
-              to="/pro/checklisten"
+              to="/pro/vorbereitung"
               className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline"
             >
               Alle anzeigen <ArrowRight className="h-3 w-3" />

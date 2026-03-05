@@ -12,7 +12,7 @@ import type { StabsRolle } from './handbook-extract'
 
 // ─── Types ─────────────────────────────────────────────
 
-export type TabKey = 'uebersicht' | 'stufe1' | 'stufe2' | 'stufe3' | 'checklisten' | 'inventar' | 'handbuch'
+export type TabKey = 'uebersicht' | 'eskalation' | 'inventar' | 'handbuch'
 
 export interface ReadinessCheck {
   key: string
@@ -39,10 +39,10 @@ export function calculateReadiness(opts: {
   krisenstabRollen: StabsRolle[]
   alertContacts: DbAlertContact[]
   inventoryItems: DbInventoryItem[]
-  vorbereitungChecklisten?: DbChecklist[]
+  scenarioChecklists?: DbChecklist[]
   szenarioInventoryItems?: DbInventoryItem[]
 }): ReadinessResult {
-  const { eskalationsstufen, krisenstabRollen, alertContacts, inventoryItems, vorbereitungChecklisten, szenarioInventoryItems } = opts
+  const { eskalationsstufen, krisenstabRollen, alertContacts, inventoryItems, scenarioChecklists, szenarioInventoryItems } = opts
 
   // Eskalations-Stats
   const totalCheckItems = eskalationsstufen.reduce((sum, s) => sum + s.checkliste.length, 0)
@@ -61,7 +61,7 @@ export function calculateReadiness(opts: {
       label: 'Eskalationsstufen definiert',
       done: eskalationsstufen.some(s => s.checkliste.length > 0),
       handlung: 'Checklisten für die 3 Eskalationsstufen anlegen',
-      targetTab: 'stufe1',
+      targetTab: 'eskalation',
       severity: 'kritisch',
     },
     {
@@ -77,7 +77,7 @@ export function calculateReadiness(opts: {
       label: 'Alarmierungsketten definiert',
       done: hasAnyAlarmkette,
       handlung: 'Alarmierungsreihenfolge pro Stufe festlegen',
-      targetTab: 'stufe1',
+      targetTab: 'eskalation',
       severity: 'kritisch',
     },
     {
@@ -93,7 +93,7 @@ export function calculateReadiness(opts: {
       label: 'Vorwarnung-Checkliste vorhanden',
       done: (eskalationsstufen[0]?.checkliste?.length ?? 0) > 0,
       handlung: 'Checkliste für Stufe 1 (Vorwarnung) anlegen',
-      targetTab: 'stufe1',
+      targetTab: 'eskalation',
       severity: 'kritisch',
     },
     {
@@ -113,22 +113,22 @@ export function calculateReadiness(opts: {
       handlung: totalCheckItems > 0
         ? `${totalCheckDone}/${totalCheckItems} Punkte erledigt`
         : 'Checklisten-Items anlegen und abarbeiten',
-      targetTab: 'stufe1',
+      targetTab: 'eskalation',
       severity: 'warnung',
     },
-    // Check 8: Vorbereitungs-Checklisten (ExTrass)
+    // Check 8: Szenario-spezifische Checklisten
     (() => {
-      const allItems = (vorbereitungChecklisten || []).flatMap(c => c.items)
-      const vorbereitungTotal = allItems.length
-      const vorbereitungDone = allItems.filter(i => i.status === 'done' || i.status === 'partial').length
+      const allItems = (scenarioChecklists || []).flatMap(c => c.items)
+      const clTotal = allItems.length
+      const clDone = allItems.filter(i => i.status === 'done').length
       return {
-        key: 'vorbereitung_checklisten',
-        label: 'Vorbereitungs-Checklisten bearbeitet',
-        done: vorbereitungTotal > 0 && vorbereitungDone >= vorbereitungTotal * 0.5,
-        handlung: vorbereitungTotal > 0
-          ? `${vorbereitungDone}/${vorbereitungTotal} Punkte erfüllt/teilweise erfüllt`
-          : 'Vorbereitungs-Checklisten aus ExTrass-Katalog anlegen',
-        targetTab: 'checklisten' as TabKey,
+        key: 'szenario_checklisten',
+        label: 'Szenario-Checklisten vorhanden',
+        done: (scenarioChecklists?.length ?? 0) > 0,
+        handlung: clTotal > 0
+          ? `${clDone}/${clTotal} Aufgaben erledigt`
+          : 'Krisenhandbuch generieren für automatische Checklisten',
+        externalLink: '/pro/vorbereitung',
         severity: 'warnung' as const,
       }
     })(),

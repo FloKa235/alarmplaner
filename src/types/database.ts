@@ -98,6 +98,36 @@ export interface Database {
         Update: Partial<DbNeighborhoodRequestInsert>
         Relationships: []
       }
+      business_processes: {
+        Row: DbBusinessProcess
+        Insert: DbBusinessProcessInsert
+        Update: Partial<DbBusinessProcessInsert>
+        Relationships: []
+      }
+      compliance_frameworks: {
+        Row: DbComplianceFramework
+        Insert: DbComplianceFrameworkInsert
+        Update: Partial<DbComplianceFrameworkInsert>
+        Relationships: []
+      }
+      compliance_requirements: {
+        Row: DbComplianceRequirement
+        Insert: DbComplianceRequirementInsert
+        Update: Partial<DbComplianceRequirementInsert>
+        Relationships: []
+      }
+      exercises: {
+        Row: DbExercise
+        Insert: DbExerciseInsert
+        Update: Partial<DbExerciseInsert>
+        Relationships: []
+      }
+      supply_dependencies: {
+        Row: DbSupplyDependency
+        Insert: DbSupplyDependencyInsert
+        Update: Partial<DbSupplyDependencyInsert>
+        Relationships: []
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -123,6 +153,9 @@ export interface DbDistrict {
   crisis_stufe: 'vorwarnung' | 'teilaktivierung' | 'vollaktivierung' | null
   crisis_started_at: string | null
   crisis_ended_at: string | null
+  org_type: string
+  industry_sector: string | null
+  employee_count: number | null
   created_at: string
 }
 
@@ -190,7 +223,8 @@ export interface DbRiskEntry {
 
 export interface DbScenario {
   id: string
-  district_id: string
+  district_id: string | null
+  organization_id: string | null
   municipality_id: string | null
   title: string
   type: string
@@ -398,7 +432,8 @@ export interface DbScenarioPhase {
 
 export interface DbInventoryItem {
   id: string
-  district_id: string
+  district_id: string | null
+  organization_id: string | null
   category: string                // Artikel-Name (UI: "Artikel")
   kategorie: string | null        // Breitere Kategorie ("Medizin", "Technik", etc.)
   priority: 'kritisch' | 'hoch' | 'mittel' | 'niedrig' | null
@@ -421,7 +456,8 @@ export interface DbInventoryScenarioLink {
 
 export interface DbAlertContact {
   id: string
-  district_id: string
+  district_id: string | null
+  organization_id: string | null
   name: string
   role: string | null
   organization: string | null
@@ -435,7 +471,8 @@ export interface DbAlertContact {
 
 export interface DbAlert {
   id: string
-  district_id: string
+  district_id: string | null
+  organization_id: string | null
   scenario_id: string | null
   level: number
   title: string
@@ -488,6 +525,9 @@ export interface DbDistrictInsert {
   crisis_stufe?: 'vorwarnung' | 'teilaktivierung' | 'vollaktivierung' | null
   crisis_started_at?: string | null
   crisis_ended_at?: string | null
+  org_type?: string
+  industry_sector?: string | null
+  employee_count?: number | null
 }
 
 export interface DbMunicipalityInsert {
@@ -551,7 +591,8 @@ export interface DbRiskEntryInsert {
 
 export interface DbScenarioInsert {
   id?: string
-  district_id: string
+  district_id?: string | null
+  organization_id?: string | null
   municipality_id?: string | null
   title: string
   type: string
@@ -578,7 +619,8 @@ export interface DbScenarioPhaseInsert {
 
 export interface DbInventoryItemInsert {
   id?: string
-  district_id: string
+  district_id?: string | null
+  organization_id?: string | null
   category: string
   kategorie?: string | null
   priority?: 'kritisch' | 'hoch' | 'mittel' | 'niedrig' | null
@@ -595,7 +637,8 @@ export interface DbInventoryItemInsert {
 
 export interface DbAlertContactInsert {
   id?: string
-  district_id: string
+  district_id?: string | null
+  organization_id?: string | null
   name: string
   role?: string | null
   organization?: string | null
@@ -608,7 +651,8 @@ export interface DbAlertContactInsert {
 
 export interface DbAlertInsert {
   id?: string
-  district_id: string
+  district_id?: string | null
+  organization_id?: string | null
   scenario_id?: string | null
   level: number
   title: string
@@ -726,9 +770,27 @@ export interface DbChecklist {
   municipality_id: string | null
   title: string
   description: string | null
-  category: 'krisenstab' | 'sofortmassnahmen' | 'kommunikation' | 'nachbereitung' | 'custom' | 'vorbereitung'
+  category: 'krisenstab' | 'sofortmassnahmen' | 'kommunikation' | 'nachbereitung' | 'custom' | 'vorbereitung' | 'kritis_compliance'
   items: ChecklistItem[]
   is_template: boolean
+  created_at: string
+  updated_at: string
+}
+
+// ─── Krisenstab-Mitglieder ────────────────────────────────
+
+export type KrisenstabRolle = 'S1' | 'S2' | 'S3' | 'S4' | 'S5' | 'S6' | 'Leiter'
+
+export interface DbKrisenstabMember {
+  id: string
+  district_id: string
+  rolle: KrisenstabRolle
+  ist_stellvertreter: boolean
+  contact_id: string | null
+  name: string | null
+  telefon: string | null
+  email: string | null
+  notizen: string | null
   created_at: string
   updated_at: string
 }
@@ -810,6 +872,9 @@ export type CitizenInventoryCategory =
   | 'dokumente'
   | 'babybedarf'
   | 'tierbedarf'
+  | (string & {}) // allow custom categories
+
+export type InventoryScaleType = 'per_person' | 'per_household'
 
 export interface DbCitizenInventory {
   id: string
@@ -817,9 +882,10 @@ export interface DbCitizenInventory {
   category: CitizenInventoryCategory
   subcategory: string | null
   item_name: string
-  target_qty: number
+  target_qty: number        // base target for 10 days
   current_qty: number
   unit: string
+  scale_type: InventoryScaleType // per_person = scales with time, per_household = fixed
   expiry_date: string | null
   purchase_date: string | null
   product_name: string | null
@@ -841,6 +907,7 @@ export interface DbCitizenInventoryInsert {
   target_qty?: number
   current_qty?: number
   unit?: string
+  scale_type?: InventoryScaleType
   expiry_date?: string | null
   purchase_date?: string | null
   product_name?: string | null
@@ -910,4 +977,296 @@ export interface DbNeighborhoodRequestInsert {
   description?: string | null
   category: string
   is_resolved?: boolean
+}
+
+// ─── Landkreis-Krisenhandbuch (Standalone) ────────────────
+
+export type HandbuchStatus = 'entwurf' | 'in_pruefung' | 'freigegeben' | 'archiviert'
+
+export interface DbDistrictHandbook {
+  id: string
+  district_id: string
+  titel: string
+  ersteller: string | null
+  version: string
+  gueltig_bis: string | null
+  naechste_ueberpruefung: string | null
+  freigabe_durch: string | null
+  freigabe_am: string | null
+  status: HandbuchStatus
+  kapitel: KrisenhandbuchKapitelV3[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DbDistrictHandbookInsert {
+  id?: string
+  district_id: string
+  titel?: string
+  ersteller?: string | null
+  version?: string
+  gueltig_bis?: string | null
+  naechste_ueberpruefung?: string | null
+  freigabe_durch?: string | null
+  freigabe_am?: string | null
+  status?: HandbuchStatus
+  kapitel?: KrisenhandbuchKapitelV3[]
+}
+
+// ─── Enterprise: Organizations ──────────────────────────────
+
+export type Nis2Category = 'wesentlich' | 'wichtig'
+export type SiteType = 'buero' | 'rechenzentrum' | 'produktion' | 'lager' | 'sonstiges'
+
+export interface DbOrganization {
+  id: string
+  user_id: string
+  name: string
+  legal_form: string | null
+  industry_sector: string | null
+  employee_count: number | null
+  annual_revenue_eur: number | null
+  nis2_relevant: boolean
+  nis2_category: Nis2Category | null
+  kritis_relevant: boolean
+  kritis_sector: string | null
+  crisis_active: boolean
+  crisis_scenario_id: string | null
+  crisis_stufe: 'vorwarnung' | 'teilaktivierung' | 'vollaktivierung' | null
+  crisis_started_at: string | null
+  crisis_ended_at: string | null
+  onboarding_completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DbOrganizationInsert {
+  id?: string
+  user_id: string
+  name: string
+  legal_form?: string | null
+  industry_sector?: string | null
+  employee_count?: number | null
+  annual_revenue_eur?: number | null
+  nis2_relevant?: boolean
+  nis2_category?: Nis2Category | null
+  kritis_relevant?: boolean
+  kritis_sector?: string | null
+  onboarding_completed?: boolean
+}
+
+export interface DbOrganizationSite {
+  id: string
+  organization_id: string
+  name: string
+  address: string | null
+  city: string | null
+  postal_code: string | null
+  is_primary: boolean
+  site_type: SiteType
+  employee_count: number | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DbOrganizationSiteInsert {
+  id?: string
+  organization_id: string
+  name: string
+  address?: string | null
+  city?: string | null
+  postal_code?: string | null
+  is_primary?: boolean
+  site_type?: SiteType
+  employee_count?: number | null
+  notes?: string | null
+}
+
+// ─── Enterprise: Business Processes (BIA) ───────────────────
+
+export type BpCriticality = 'kritisch' | 'hoch' | 'mittel' | 'niedrig'
+
+export interface DbBusinessProcess {
+  id: string
+  district_id: string | null
+  organization_id: string | null
+  name: string
+  department: string
+  description: string | null
+  criticality: BpCriticality
+  rto_hours: number | null
+  rpo_hours: number | null
+  mtpd_hours: number | null
+  dependencies: string[]
+  owner_contact_id: string | null
+  it_systems: string[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DbBusinessProcessInsert {
+  id?: string
+  district_id?: string | null
+  organization_id?: string | null
+  name: string
+  department?: string
+  description?: string | null
+  criticality?: BpCriticality
+  rto_hours?: number | null
+  rpo_hours?: number | null
+  mtpd_hours?: number | null
+  dependencies?: string[]
+  owner_contact_id?: string | null
+  it_systems?: string[]
+}
+
+// ─── Enterprise: Compliance Frameworks ──────────────────────
+
+export type FrameworkType = 'nis2' | 'kritis_dachg' | 'iso_22301' | 'bsi_200_4'
+
+export interface DbComplianceFramework {
+  id: string
+  district_id: string | null
+  organization_id: string | null
+  framework_type: FrameworkType
+  enabled: boolean
+  progress_pct: number
+  last_audit_date: string | null
+  next_audit_date: string | null
+  created_at: string
+}
+
+export interface DbComplianceFrameworkInsert {
+  id?: string
+  district_id?: string | null
+  organization_id?: string | null
+  framework_type: FrameworkType
+  enabled?: boolean
+  progress_pct?: number
+  last_audit_date?: string | null
+  next_audit_date?: string | null
+}
+
+// ─── Enterprise: Compliance Requirements ────────────────────
+
+export type RequirementStatus = 'offen' | 'teilweise' | 'erfuellt' | 'nicht_anwendbar'
+
+export interface DbComplianceRequirement {
+  id: string
+  framework_id: string
+  section: string
+  title: string
+  description: string | null
+  status: RequirementStatus
+  evidence_document_ids: string[]
+  evidence_checklist_ids: string[]
+  evidence_scenario_ids: string[]
+  responsible: string | null
+  due_date: string | null
+  notes: string | null
+  action_href: string | null
+  action_label: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DbComplianceRequirementInsert {
+  id?: string
+  framework_id: string
+  section?: string
+  title: string
+  description?: string | null
+  status?: RequirementStatus
+  evidence_document_ids?: string[]
+  evidence_checklist_ids?: string[]
+  evidence_scenario_ids?: string[]
+  responsible?: string | null
+  due_date?: string | null
+  notes?: string | null
+  action_href?: string | null
+  action_label?: string | null
+  sort_order?: number
+}
+
+// ─── Enterprise: Exercises ──────────────────────────────────
+
+export type ExerciseType = 'tabletop' | 'funktionsuebung' | 'vollstaendig' | 'walkthrough'
+export type ExerciseStatus = 'geplant' | 'durchgefuehrt' | 'ausgewertet' | 'abgeschlossen'
+
+export interface DbExercise {
+  id: string
+  district_id: string | null
+  organization_id: string | null
+  scenario_id: string | null
+  title: string
+  type: ExerciseType
+  date_planned: string | null
+  date_executed: string | null
+  duration_hours: number | null
+  participants: unknown[]
+  objectives: string[]
+  findings: unknown[]
+  actions: unknown[]
+  status: ExerciseStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface DbExerciseInsert {
+  id?: string
+  district_id?: string | null
+  organization_id?: string | null
+  scenario_id?: string | null
+  title: string
+  type?: ExerciseType
+  date_planned?: string | null
+  date_executed?: string | null
+  duration_hours?: number | null
+  participants?: unknown[]
+  objectives?: string[]
+  findings?: unknown[]
+  actions?: unknown[]
+  status?: ExerciseStatus
+}
+
+// ─── Enterprise: Supply Dependencies ────────────────────────
+
+export type SupplyDependencyType = 'lieferant' | 'it_system' | 'cloud_service' | 'versorger' | 'dienstleister'
+
+export interface DbSupplyDependency {
+  id: string
+  district_id: string | null
+  organization_id: string | null
+  type: SupplyDependencyType
+  name: string
+  description: string | null
+  criticality: BpCriticality
+  contact_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  alternatives: string[]
+  sla_hours: number | null
+  contract_end_date: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DbSupplyDependencyInsert {
+  id?: string
+  district_id?: string | null
+  organization_id?: string | null
+  type?: SupplyDependencyType
+  name: string
+  description?: string | null
+  criticality?: BpCriticality
+  contact_name?: string | null
+  contact_email?: string | null
+  contact_phone?: string | null
+  alternatives?: string[]
+  sla_hours?: number | null
+  contract_end_date?: string | null
+  notes?: string | null
 }

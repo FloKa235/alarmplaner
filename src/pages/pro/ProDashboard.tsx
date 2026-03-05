@@ -15,6 +15,8 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { useWarnings } from '@/hooks/useWarnings'
 import { SECTOR_CONFIG, getSector } from '@/data/sector-config'
 import type { DbMunicipality, DbScenario, DbInventoryItem, DbChecklist, DbAlertContact, DbKritisSite } from '@/types/database'
+import { matchWarningsToScenarios, type WarningScenarioMatch } from '@/utils/warning-scenario-mapping'
+import { BBK_BENCHMARKS, getBenchmarkStatus, getStateAverage, NATIONAL_AVERAGE } from '@/data/bbk-benchmarks'
 
 // ─── Helpers ─────────────────────────────────────────
 
@@ -73,12 +75,14 @@ export default function ProDashboard() {
     [districtId]
   )
 
-  const { data: checklists, loading: checkLoading } = useSupabaseQuery<DbChecklist>(
+  const { data: extrassChecklists, loading: checkLoading } = useSupabaseQuery<DbChecklist>(
     (sb) =>
       sb
         .from('checklists')
         .select('id, items, title')
-        .eq('district_id', districtId!),
+        .eq('district_id', districtId!)
+        .eq('category', 'vorbereitung')
+        .is('scenario_id', null),
     [districtId]
   )
 
@@ -103,6 +107,11 @@ export default function ProDashboard() {
 
   const { warnings } = useWarnings(districtId)
 
+  // ─── Warnung → Szenario-Empfehlung (mit Gemeinde-Zuordnung) ──
+  const warningMatches: WarningScenarioMatch[] = warnings.length > 0 && scenarios.length > 0
+    ? matchWarningsToScenarios(warnings, scenarios, municipalities).slice(0, 3)
+    : []
+
   // ─── Loading State ───────────────────────────────
 
   if (districtLoading || munLoading || scenLoading || invLoading || checkLoading || contactsLoading || kritisLoading) {
@@ -122,11 +131,14 @@ export default function ProDashboard() {
 
   // Vorbereitung
   const scenariosWithHandbook = scenarios.filter((s) => s.is_handbook_generated).length
-  const totalChecklists = checklists.length
-  const completedChecklists = checklists.filter((cl) => {
-    const items = cl.items || []
-    return items.length > 0 && items.every((item) => item.status !== 'open')
-  }).length
+
+  // ExTrass-Fortschritt: done=100%, partial=50%, rest=0%
+  const extrassItems = extrassChecklists.flatMap(c => c.items || [])
+  const extrassDone = extrassItems.filter(i => i.status === 'done').length
+  const extrassPartial = extrassItems.filter(i => i.status === 'partial').length
+  const extrassPct = extrassItems.length > 0
+    ? Math.round(((extrassDone + extrassPartial * 0.5) / extrassItems.length) * 100)
+    : 0
 
   // Kontakte / Alarmierung
   const contactGroups = new Set<string>()
@@ -136,10 +148,9 @@ export default function ProDashboard() {
 
   // ─── Gesamtstatus-Score (0–100) ────────────────
   const handbookPct = scenarios.length > 0 ? (scenariosWithHandbook / scenarios.length) * 100 : 0
-  const checklistPct = totalChecklists > 0 ? (completedChecklists / totalChecklists) * 100 : 0
   const contactPct = hasContacts && hasContactGroups ? 100 : hasContacts ? 50 : 0
   const prepScore = Math.round(
-    handbookPct * 0.3 + checklistPct * 0.25 + Math.min(inventoryCoverage, 100) * 0.25 + contactPct * 0.2
+    handbookPct * 0.3 + extrassPct * 0.25 + Math.min(inventoryCoverage, 100) * 0.25 + contactPct * 0.2
   )
   const prepLabel = prepScore >= 75 ? 'Gut vorbereitet' : prepScore >= 50 ? 'Teilweise vorbereitet' : 'Handlungsbedarf'
   const prepColor = prepScore >= 75 ? 'green' : prepScore >= 50 ? 'amber' : 'red'
@@ -150,30 +161,29 @@ export default function ProDashboard() {
   const scenariosWithout = scenarios.length - scenariosWithHandbook
   if (scenariosWithout > 0) {
     todos.push({
-      text: `${scenariosWithout} Szenario${scenariosWithout > 1 ? 'en' : ''} ohne Krisenhandbuch`,
+      text: `KI-Handbuch generieren für ${scenariosWithout} Szenario${scenariosWithout > 1 ? 'en' : ''} (~2 Min.)`,
       href: '/pro/szenarien',
       priority: scenariosWithout > 3 ? 'high' : 'medium',
     })
   }
-  const openChecklists = totalChecklists - completedChecklists
-  if (openChecklists > 0) {
-    todos.push({
-      text: `${openChecklists} offene Checkliste${openChecklists > 1 ? 'n' : ''}`,
-      href: '/pro/checklisten',
-      priority: openChecklists > 5 ? 'high' : 'medium',
-    })
+  if (extrassChecklists.length === 0) {
+    todos.push({ text: 'ExTrass-Checklisten erstellen (18 Kategorien, ~5 Min.)', href: '/pro/vorbereitung', priority: 'high' })
+  } else if (extrassPct < 50) {
+    todos.push({ text: `ExTrass weiter ausfüllen — aktuell ${extrassPct}%`, href: '/pro/vorbereitung', priority: 'high' })
+  } else if (extrassPct < 80) {
+    todos.push({ text: `ExTrass weiter ausfüllen — aktuell ${extrassPct}%`, href: '/pro/vorbereitung', priority: 'medium' })
   }
   if (inventoryCoverage < 50) {
-    todos.push({ text: 'Inventar unter 50 % Abdeckung', href: '/pro/inventar', priority: 'high' })
+    todos.push({ text: `Inventar auffüllen — ${inventoryCoverage}% Abdeckung`, href: '/pro/inventar', priority: 'high' })
   } else if (inventoryCoverage < 80) {
-    todos.push({ text: `Inventar bei ${inventoryCoverage} % Abdeckung`, href: '/pro/inventar', priority: 'medium' })
+    todos.push({ text: `Inventar auffüllen — ${inventoryCoverage}% Abdeckung`, href: '/pro/inventar', priority: 'medium' })
   }
   if (!hasContacts) {
-    todos.push({ text: 'Keine Alarmkontakte angelegt', href: '/pro/alarmierung', priority: 'high' })
+    todos.push({ text: 'Alarmkontakte anlegen für Krisenstab', href: '/pro/alarmierung', priority: 'high' })
   } else if (!hasContactGroups) {
-    todos.push({ text: 'Kontakte ohne Gruppenverteilung', href: '/pro/alarmierung', priority: 'medium' })
+    todos.push({ text: 'Kontaktgruppen einrichten für Alarmierung', href: '/pro/alarmierung', priority: 'medium' })
   }
-  if (warnings.length > 0) {
+  if (warnings.length > 0 && warningMatches.length === 0) {
     todos.push({
       text: `${warnings.length} aktive Warnung${warnings.length > 1 ? 'en' : ''} prüfen`,
       href: '/pro/risikoanalyse',
@@ -325,7 +335,7 @@ export default function ProDashboard() {
           <div className="space-y-2">
             {[
               { label: 'Krisenhandbücher', pct: Math.round(handbookPct) },
-              { label: 'Checklisten', pct: Math.round(checklistPct) },
+              { label: 'Vorbereitung (ExTrass)', pct: extrassPct },
               { label: 'Inventar', pct: Math.min(inventoryCoverage, 100) },
               { label: 'Alarmierung', pct: Math.round(contactPct) },
             ].map((item) => (
@@ -356,7 +366,44 @@ export default function ProDashboard() {
             <h3 className="font-bold text-text-primary">Handlungsbedarf</h3>
           </div>
 
-          {todos.length === 0 ? (
+          {/* Warnung → Szenario-Empfehlungen (mit betroffenen Gemeinden) */}
+          {warningMatches.length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {warningMatches.map((match, i) => {
+                const muns = match.affectedMunicipalities
+                const showMuns = muns.slice(0, 3)
+                const moreMuns = muns.length > 3 ? muns.length - 3 : 0
+                return (
+                  <Link
+                    key={i}
+                    to={`/pro/szenarien/${match.matchedScenarios[0]?.id}`}
+                    className="block rounded-xl bg-amber-50 px-3 py-2.5 transition-colors hover:bg-amber-100"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                      <span className="flex-1 text-sm text-amber-900">
+                        <span className="font-medium">{match.warning.title || 'Warnung'}</span>
+                        {' → Szenario '}
+                        <span className="font-semibold">„{match.matchedScenarios[0]?.title}"</span>
+                        {' prüfen'}
+                      </span>
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                        match.confidence === 'hoch' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      }`}>{match.confidence}</span>
+                    </div>
+                    {showMuns.length > 0 && (
+                      <p className="mt-1 ml-6.5 text-xs text-amber-700">
+                        Betroffene Gemeinden: {showMuns.join(', ')}
+                        {moreMuns > 0 && <span className="text-amber-500"> +{moreMuns} weitere</span>}
+                      </p>
+                    )}
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+
+          {todos.length === 0 && warningMatches.length === 0 ? (
             <div className="flex items-center gap-3 rounded-xl bg-green-50 p-4">
               <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
               <div>
@@ -364,7 +411,7 @@ export default function ProDashboard() {
                 <p className="text-xs text-green-700">Keine offenen Maßnahmen.</p>
               </div>
             </div>
-          ) : (
+          ) : todos.length > 0 ? (
             <div className="space-y-2">
               {todos.slice(0, 6).map((todo, i) => (
                 <Link
@@ -380,7 +427,7 @@ export default function ProDashboard() {
                 </Link>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Card 3: Bereiche kompakt */}
@@ -407,16 +454,16 @@ export default function ProDashboard() {
             </Link>
 
             <Link to="/pro/checklisten" className="group flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
                 <ClipboardList className="h-4 w-4" />
               </div>
               <div className="flex-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-text-primary group-hover:text-primary-600">Checklisten</span>
-                  <span className="text-sm font-bold text-text-primary">{completedChecklists}/{totalChecklists}</span>
+                  <span className="text-sm font-medium text-text-primary group-hover:text-primary-600">Vorbereitung (ExTrass)</span>
+                  <span className="text-sm font-bold text-text-primary">{extrassPct}%</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-secondary">
-                  <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${totalChecklists > 0 ? (completedChecklists / totalChecklists) * 100 : 0}%` }} />
+                  <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${extrassPct}%` }} />
                 </div>
               </div>
             </Link>
@@ -519,6 +566,145 @@ export default function ProDashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── BBK-Richtwerte + Kommunaler Benchmark ──────── */}
+      {(() => {
+        const stateAvg = getStateAverage(district?.state || '')
+        const natAvg = NATIONAL_AVERAGE
+        const benchmarkValues: Record<string, number> = {
+          szenarien: scenarios.length,
+          handbuecher: scenariosWithHandbook,
+          inventarAbdeckung: inventoryCoverage,
+          alarmkontakte: contacts.length,
+          checklistenFortschritt: extrassPct,
+        }
+        const stateValues: Record<string, number> = {
+          szenarien: stateAvg.szenarien,
+          handbuecher: stateAvg.handbuecher,
+          inventarAbdeckung: stateAvg.inventarAbdeckung,
+          alarmkontakte: stateAvg.alarmkontakte,
+          checklistenFortschritt: stateAvg.extrassPct,
+        }
+        const natValues: Record<string, number> = {
+          szenarien: natAvg.szenarien,
+          handbuecher: natAvg.handbuecher,
+          inventarAbdeckung: natAvg.inventarAbdeckung,
+          alarmkontakte: natAvg.alarmkontakte,
+          checklistenFortschritt: natAvg.extrassPct,
+        }
+        const stateName = district?.state || 'Bundesland'
+        const ownBetter = prepScore > stateAvg.prepScore
+
+        return (
+          <div className="mb-6 rounded-2xl border border-border bg-white p-5">
+            {/* Header mit Gesamtvergleich */}
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4 text-primary-600" />
+                <h3 className="text-sm font-bold text-text-primary">Kommunaler Benchmark</h3>
+              </div>
+              {/* Vergleichs-Werte */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-lg font-bold ${
+                    prepColor === 'green' ? 'text-green-600' : prepColor === 'amber' ? 'text-amber-600' : 'text-red-600'
+                  }`}>{prepScore}%</span>
+                  <span className="text-xs text-text-muted">Ihr Landkreis</span>
+                </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold text-text-secondary">{stateAvg.prepScore}%</span>
+                  <span className="text-xs text-text-muted">Ø {stateName}</span>
+                </div>
+                <div className="h-4 w-px bg-border" />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold text-text-secondary">{natAvg.prepScore}%</span>
+                  <span className="text-xs text-text-muted">Ø Deutschland</span>
+                </div>
+              </div>
+              {ownBetter && (
+                <span className="rounded-lg bg-green-50 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                  +{prepScore - stateAvg.prepScore} über Landesdurchschnitt
+                </span>
+              )}
+            </div>
+
+            {/* Benchmark-Grid */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {BBK_BENCHMARKS.map((bm) => {
+                const value = benchmarkValues[bm.key] ?? 0
+                const stateVal = stateValues[bm.key] ?? 0
+                const natVal = natValues[bm.key] ?? 0
+                const status = getBenchmarkStatus(value, bm)
+                const pct = Math.min(Math.round((value / bm.empfohlen) * 100), 120)
+                const minPct = Math.round((bm.minimum / bm.empfohlen) * 100)
+                const statePct = Math.min(Math.round((stateVal / bm.empfohlen) * 100), 100)
+                const natPct = Math.min(Math.round((natVal / bm.empfohlen) * 100), 100)
+                return (
+                  <div key={bm.key} className="rounded-xl bg-surface-secondary p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-medium text-text-secondary">{bm.label}</span>
+                      <span className={`text-xs font-bold ${
+                        status === 'erfuellt' ? 'text-green-600'
+                          : status === 'ausbaufaehig' ? 'text-amber-600'
+                          : 'text-red-600'
+                      }`}>
+                        {value}{bm.unit || ''}
+                      </span>
+                    </div>
+                    {/* Balken mit Markierungen */}
+                    <div className="relative h-2 overflow-visible rounded-full bg-white">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          status === 'erfuellt' ? 'bg-green-500'
+                            : status === 'ausbaufaehig' ? 'bg-amber-400'
+                            : 'bg-red-400'
+                        }`}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                      />
+                      {/* Minimum-Markierung */}
+                      <div
+                        className="absolute top-[-2px] h-[calc(100%+4px)] w-[2px] bg-red-300"
+                        style={{ left: `${minPct}%` }}
+                        title={`Minimum: ${bm.minimum}${bm.unit || ''}`}
+                      />
+                      {/* Landes-Ø Markierung */}
+                      <div
+                        className="absolute top-[-3px] h-[calc(100%+6px)] w-[2px] bg-blue-400"
+                        style={{ left: `${statePct}%` }}
+                        title={`Ø ${stateName}: ${stateVal}${bm.unit || ''}`}
+                      />
+                      {/* Bundes-Ø Markierung */}
+                      <div
+                        className="absolute top-[-3px] h-[calc(100%+6px)] w-[2px] bg-slate-400"
+                        style={{ left: `${natPct}%` }}
+                        title={`Ø Deutschland: ${natVal}${bm.unit || ''}`}
+                      />
+                      {/* Empfohlen-Markierung */}
+                      <div
+                        className="absolute top-[-2px] h-[calc(100%+4px)] w-[2px] bg-green-400"
+                        style={{ left: '100%' }}
+                        title={`Empfohlen: ${bm.empfohlen}${bm.unit || ''}`}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[10px] text-text-muted">
+                      <span>{bm.minimum}{bm.unit || ''} Min.</span>
+                      <span>{bm.empfohlen}{bm.unit || ''} Empf.</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {/* Legende */}
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] text-text-muted">
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-red-300" />Minimum</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-green-400" />Empfohlen</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-blue-400" />Ø {stateName}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-400" />Ø Deutschland</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Kompakte Eckdaten-Leiste ───────────────────── */}
       <div className="mb-6 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-xl border border-border bg-white px-6 py-3">

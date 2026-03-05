@@ -878,4 +878,106 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
       { rolle: 'S5 – Presse', kontaktgruppen: ['Medien'], kanaele: ['telefon', 'email'], wartezeit_min: 15 },
     ],
   },
+
+  // ═══════════════════════════════════════════════
+  //  BUSINESS SZENARIEN (7) – fuer Unternehmen/BCM
+  // ═══════════════════════════════════════════════
+
+  // ─── 14. Ransomware-Angriff ──────────────────
+  {
+    title: 'Ransomware-Angriff',
+    type: 'Ransomware',
+    severity: 80,
+    description: 'Verschluesselung kritischer IT-Systeme durch Schadsoftware. Erpressung, Datenverlust, Betriebsunterbrechung. Meldepflicht nach NIS2 §32 (24h Erstmeldung).',
+    phases: [
+      { name: 'Erkennung & Eindaemmung', duration: '0–4 Stunden', tasks: ['Betroffene Systeme identifizieren', 'Netzwerksegmente isolieren', 'CERT/BSI informieren (24h-Meldepflicht)', 'Forensische Sicherung starten'] },
+      { name: 'Analyse & Bewertung', duration: '4–24 Stunden', tasks: ['Angriffsvektor ermitteln', 'Schadensausmass bewerten', 'Backup-Integritaet pruefen', 'Rechtliche Bewertung (Datenschutz, Meldepflichten)'] },
+      { name: 'Wiederherstellung', duration: '1–14 Tage', tasks: ['Systeme aus Backups wiederherstellen', 'Sicherheitsluecken schliessen', 'Schrittweise Inbetriebnahme', 'Monitoring verstaerken'] },
+      { name: 'Nachbereitung', duration: 'Ab Tag 14', tasks: ['72h-Folgemeldung an BSI', 'Lessons Learned dokumentieren', 'Abschlussbericht (1 Monat)', 'Sicherheitsmassnahmen anpassen'] },
+    ],
+  },
+
+  // ─── 15. Kritischer Lieferkettenausfall ──────────────────
+  {
+    title: 'Kritischer Lieferkettenausfall',
+    type: 'Lieferkettenausfall',
+    severity: 65,
+    description: 'Ausfall eines kritischen Zulieferers oder Dienstleisters. Betriebsunterbrechung durch fehlende Vorprodukte, IT-Services oder Energieversorgung.',
+    phases: [
+      { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Betroffene Lieferketten identifizieren', 'Auswirkungen auf eigene Produktion bewerten', 'Krisenstab einberufen', 'Alternative Lieferanten kontaktieren'] },
+      { name: 'Ueberbrueckung', duration: '1–7 Tage', tasks: ['Lagerbestaende pruefen und rationieren', 'Notfall-Lieferanten aktivieren', 'Produktion priorisieren (kritische Produkte zuerst)', 'Kunden informieren'] },
+      { name: 'Stabilisierung', duration: '1–4 Wochen', tasks: ['Ersatzlieferanten vertraglich sichern', 'Produktionsplanung anpassen', 'Finanzielle Auswirkungen bewerten', 'Versicherung kontaktieren'] },
+      { name: 'Nachbereitung', duration: 'Ab Woche 4', tasks: ['Lieferanten-Risikobewertung aktualisieren', 'Dual-Sourcing-Strategie pruefen', 'Sicherheitsbestaende anpassen', 'Vertraege ueberarbeiten'] },
+    ],
+  },
+
+  // ─── 16. Rechenzentrumsausfall ──────────────────
+  {
+    title: 'Rechenzentrumsausfall',
+    type: 'Rechenzentrumsausfall',
+    severity: 75,
+    description: 'Totalausfall des primaeren Rechenzentrums durch technisches Versagen, Feuer, Wasser oder Sabotage. Alle gehosteten Dienste betroffen.',
+    phases: [
+      { name: 'Sofortreaktion', duration: '0–1 Stunde', tasks: ['Ausmass des Ausfalls feststellen', 'DR-Plan aktivieren', 'Failover auf Backup-Standort einleiten', 'Stakeholder informieren'] },
+      { name: 'Failover & Notbetrieb', duration: '1–24 Stunden', tasks: ['Kritische Systeme am DR-Standort hochfahren', 'Datenintegritaet pruefen', 'Reduzierter Betrieb sicherstellen', 'Kommunikation an Kunden'] },
+      { name: 'Wiederherstellung', duration: '1–7 Tage', tasks: ['Primaer-Standort reparieren/ersetzen', 'Daten synchronisieren', 'Schrittweise Rueckmigration', 'Performance-Tests'] },
+      { name: 'Nachbereitung', duration: 'Ab Woche 2', tasks: ['Root-Cause-Analyse', 'DR-Plan aktualisieren', 'RTO/RPO-Ziele ueberpruefen', 'Redundanzkonzept verbessern'] },
+    ],
+  },
+
+  // ─── 17. Datenschutzvorfall ──────────────────
+  {
+    title: 'Datenschutzvorfall / Datenleck',
+    type: 'Datenschutzvorfall',
+    severity: 70,
+    description: 'Unbefugter Zugriff auf personenbezogene Daten oder Geschaeftsgeheimnisse. Meldepflicht an Aufsichtsbehoerde binnen 72 Stunden (Art. 33 DSGVO).',
+    phases: [
+      { name: 'Erkennung & Meldung', duration: '0–24 Stunden', tasks: ['Art und Umfang des Datenlecks feststellen', 'Datenschutzbeauftragten informieren', 'Betroffene Systeme sichern', 'Forensische Sicherung einleiten'] },
+      { name: 'Behoerdenmeldung', duration: '24–72 Stunden', tasks: ['Meldung an Aufsichtsbehoerde (Art. 33 DSGVO)', 'Risikobewertung fuer Betroffene', 'Benachrichtigung der Betroffenen pruefen (Art. 34)', 'Rechtsanwalt einschalten'] },
+      { name: 'Eindaemmung', duration: '1–7 Tage', tasks: ['Sicherheitsluecke schliessen', 'Zugriffsrechte ueberpruefen und einschraenken', 'Monitoring verstaerken', 'Betroffene benachrichtigen (falls erforderlich)'] },
+      { name: 'Nachbereitung', duration: 'Ab Woche 2', tasks: ['DSGVO-Dokumentation vervollstaendigen', 'Technische Schutzmassnahmen verbessern', 'Schulungen durchfuehren', 'Datenschutz-Folgenabschaetzung aktualisieren'] },
+    ],
+  },
+
+  // ─── 18. Massiver Personalausfall ──────────────────
+  {
+    title: 'Massiver Personalausfall',
+    type: 'Personalausfall',
+    severity: 55,
+    description: 'Gleichzeitiger Ausfall eines grossen Teils der Belegschaft durch Pandemie, Streik oder andere Ursachen. Kritische Funktionen koennen nicht besetzt werden.',
+    phases: [
+      { name: 'Sofortreaktion', duration: '0–24 Stunden', tasks: ['Verfuegbare Mitarbeiter erfassen', 'Kritische Funktionen identifizieren', 'Notbesetzungsplan aktivieren', 'Remote-Arbeit ermoeglichen'] },
+      { name: 'Notbetrieb', duration: '1–14 Tage', tasks: ['Nicht-kritische Aufgaben pausieren', 'Schichtplaene anpassen', 'Externe Unterstuetzung anfragen', 'Mitarbeiterkommunikation verstaerken'] },
+      { name: 'Stabilisierung', duration: '2–6 Wochen', tasks: ['Zeitarbeitskraefte einsetzen', 'Cross-Training fuer Schluesselrollen', 'Prozesse vereinfachen/automatisieren', 'Arbeitsrechtliche Massnahmen pruefen'] },
+      { name: 'Nachbereitung', duration: 'Ab Woche 6', tasks: ['Stellvertretungsregelungen ueberarbeiten', 'Know-how-Dokumentation verbessern', 'Pandemieplan aktualisieren', 'Schulungsprogramm anpassen'] },
+    ],
+  },
+
+  // ─── 19. Betriebsstoerung / Produktionsausfall ──────────────────
+  {
+    title: 'Betriebsstoerung / Produktionsausfall',
+    type: 'Betriebsstoerung',
+    severity: 60,
+    description: 'Unerwarteter Stillstand der Produktion oder wesentlicher Geschaeftsprozesse durch technisches Versagen, Unfall oder externe Stoerung.',
+    phases: [
+      { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Ursache der Stoerung ermitteln', 'Sicherheit fuer Mitarbeiter gewaehrleisten', 'Krisenstab informieren', 'Kunden und Partner benachrichtigen'] },
+      { name: 'Notbetrieb', duration: '4–48 Stunden', tasks: ['Provisorische Loesung einrichten', 'Alternative Produktionswege pruefen', 'Versicherung informieren', 'Lieferzusagen ueberpruefen'] },
+      { name: 'Wiederherstellung', duration: '2–14 Tage', tasks: ['Reparatur/Ersatz defekter Anlagen', 'Produktion schrittweise hochfahren', 'Qualitaetssicherung verstaerken', 'Rueckstaende aufarbeiten'] },
+      { name: 'Nachbereitung', duration: 'Ab Woche 3', tasks: ['Ursachenanalyse dokumentieren', 'Wartungsplaene anpassen', 'Redundanzen einrichten', 'Versicherungsschutz pruefen'] },
+    ],
+  },
+
+  // ─── 20. Reputationskrise ──────────────────
+  {
+    title: 'Reputationskrise',
+    type: 'Reputationskrise',
+    severity: 50,
+    description: 'Schwere Schaedigung des Unternehmensrufs durch Medienbericht, Social-Media-Shitstorm, Produktrueckruf oder Fehlverhalten. Vertrauensverlust bei Kunden und Partnern.',
+    phases: [
+      { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Medienberichterstattung erfassen und bewerten', 'Krisenkommunikationsteam aktivieren', 'Fakten sammeln und verifizieren', 'Erste Stellungnahme vorbereiten'] },
+      { name: 'Aktive Krisenkommunikation', duration: '4–48 Stunden', tasks: ['Offizielle Stellungnahme veroeffentlichen', 'Social-Media-Monitoring intensivieren', 'Medienanfragen zentral beantworten', 'Interne Kommunikation sicherstellen'] },
+      { name: 'Schadensbegrenzung', duration: '2–14 Tage', tasks: ['Ursache transparent kommunizieren', 'Korrekturmassnahmen einleiten', 'Dialog mit Stakeholdern suchen', 'Rechtliche Optionen pruefen'] },
+      { name: 'Wiederaufbau', duration: 'Ab Woche 3', tasks: ['Vertrauensbildende Massnahmen umsetzen', 'Kommunikationsstrategie langfristig anpassen', 'Monitoring fortfuehren', 'Lessons Learned dokumentieren'] },
+    ],
+  },
 ]

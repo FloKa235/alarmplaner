@@ -2,10 +2,12 @@ import { NavLink } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Map,
+  ShieldCheck,
   ShieldAlert,
   Flame,
   Package,
   Bell,
+  Users,
   Building2,
   Landmark,
   FileText,
@@ -13,30 +15,58 @@ import {
   ChevronLeft,
   ChevronRight,
   AlertTriangle,
-  ClipboardList,
   Radio,
   Clock,
   Zap,
+  BookOpen,
+  Scale,
+  Shield,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useCrisis, stufeLabelMap } from '@/contexts/CrisisContext'
 import KrisenaktivierungsModal from '@/components/crisis/KrisenaktivierungsModal'
 import KrisenbeendenModal from '@/components/crisis/KrisenbeendenModal'
 
-const mainNav = [
-  { label: 'Landkreis', href: '/pro', icon: Map, end: true },
-  { label: 'Risikoanalyse', href: '/pro/risikoanalyse', icon: ShieldAlert },
-  { label: 'Szenarien', href: '/pro/szenarien', icon: Flame },
-  { label: 'Inventar', href: '/pro/inventar', icon: Package },
-  { label: 'Alarmierung', href: '/pro/alarmierung', icon: Bell },
-]
-
-const adminNav = [
-  { label: 'Checklisten', href: '/pro/checklisten', icon: ClipboardList },
-  { label: 'Gemeinden', href: '/pro/gemeinden', icon: Building2 },
-  { label: 'KRITIS', href: '/pro/kritis', icon: Landmark },
-  { label: 'Dokumente', href: '/pro/dokumente', icon: FileText },
-  { label: 'Einstellungen', href: '/pro/einstellungen', icon: Settings },
+// ─── Navigation Groups ──────────────────────────────
+const navSections = [
+  {
+    label: 'Übersicht',
+    items: [
+      { label: 'Landkreis', href: '/pro', icon: Map, end: true },
+      { label: 'Gemeinden', href: '/pro/gemeinden', icon: Building2 },
+    ],
+  },
+  {
+    label: 'Vorbereitung',
+    items: [
+      { label: 'Risikoanalyse', href: '/pro/risikoanalyse', icon: ShieldAlert },
+      { label: 'Krisenszenarios', href: '/pro/szenarien', icon: Flame },
+      { label: 'Krisenhandbuch', href: '/pro/handbuch', icon: BookOpen },
+      { label: 'Aufgaben', href: '/pro/vorbereitung', icon: ShieldCheck },
+    ],
+  },
+  {
+    label: 'KRITIS',
+    items: [
+      { label: 'Infrastruktur', href: '/pro/kritis', icon: Landmark },
+      { label: 'Compliance', href: '/pro/kritis/compliance', icon: Scale },
+    ],
+  },
+  {
+    label: 'Alarmierung',
+    items: [
+      { label: 'Alarmierung', href: '/pro/alarmierung', icon: Bell },
+      { label: 'Kontakte', href: '/pro/alarmierung/kontakte', icon: Users },
+      { label: 'Krisenstab', href: '/pro/alarmierung/krisenstab', icon: Shield },
+    ],
+  },
+  {
+    label: 'Ressourcen',
+    items: [
+      { label: 'Inventar', href: '/pro/inventar', icon: Package },
+      { label: 'Dokumente', href: '/pro/dokumente', icon: FileText },
+    ],
+  },
 ]
 
 const crisisNav = [
@@ -113,33 +143,36 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {/* Main section */}
-          {!collapsed && (
-            <p className={clsx(
-              'mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider',
-              isActive ? 'text-red-400/60' : 'text-text-muted'
-            )}>
-              KI-Säulen
-            </p>
-          )}
-          <div className="space-y-1">
-            {mainNav.map((item) => (
-              <NavLink
-                key={item.href}
-                to={item.href}
-                end={item.end}
-                className={navLinkClass}
-                title={collapsed ? item.label : undefined}
-              >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </NavLink>
-            ))}
-          </div>
+          {navSections.map((section, idx) => (
+            <div key={section.label} className={idx > 0 ? 'mt-5' : ''}>
+              {!collapsed && (
+                <p className={clsx(
+                  'mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider',
+                  isActive ? 'text-red-400/60' : 'text-text-muted'
+                )}>
+                  {section.label}
+                </p>
+              )}
+              <div className="space-y-1">
+                {section.items.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    to={item.href}
+                    end={item.end}
+                    className={navLinkClass}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <item.icon className="h-5 w-5 shrink-0" />
+                    {!collapsed && <span>{item.label}</span>}
+                  </NavLink>
+                ))}
+              </div>
+            </div>
+          ))}
 
           {/* Crisis section - nur sichtbar wenn Krise aktiv */}
           {isActive && (
-            <div className="mt-6">
+            <div className="mt-5">
               {!collapsed && (
                 <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-red-400">
                   🔴 Krisenmodus
@@ -161,29 +194,22 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
           )}
 
-          {/* Admin section */}
-          <div className="mt-6">
-            {!collapsed && (
-              <p className={clsx(
-                'mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider',
-                isActive ? 'text-red-400/60' : 'text-text-muted'
-              )}>
-                Verwaltung
-              </p>
-            )}
-            <div className="space-y-1">
-              {adminNav.map((item) => (
-                <NavLink
-                  key={item.href}
-                  to={item.href}
-                  className={navLinkClass}
-                  title={collapsed ? item.label : undefined}
-                >
-                  <item.icon className="h-5 w-5 shrink-0" />
-                  {!collapsed && <span>{item.label}</span>}
-                </NavLink>
-              ))}
-            </div>
+          {/* Einstellungen — separiert unten */}
+          <div className="mt-5">
+            {collapsed ? (
+              <div className={clsx(
+                'mx-auto my-2 h-px w-8',
+                isActive ? 'bg-red-900/50' : 'bg-border'
+              )} />
+            ) : null}
+            <NavLink
+              to="/pro/einstellungen"
+              className={navLinkClass}
+              title={collapsed ? 'Einstellungen' : undefined}
+            >
+              <Settings className="h-5 w-5 shrink-0" />
+              {!collapsed && <span>Einstellungen</span>}
+            </NavLink>
           </div>
         </nav>
 

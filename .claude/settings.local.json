@@ -69,7 +69,14 @@
       "WebFetch(domain:www.bsi.bund.de)",
       "WebFetch(domain:nica-software.de)",
       "Bash(source:*)",
-      "WebFetch(domain:www.ernaehrungsvorsorge.de)"
+      "WebFetch(domain:www.ernaehrungsvorsorge.de)",
+      "Bash(git commit:*)",
+      "Bash(pkill:*)",
+      "Bash(for p in 5173 5174 5175 5176 5177 5178)",
+      "Bash(do lsof -ti :$p)",
+      "Bash(done)",
+      "mcp__3e354723-b4be-4625-a34f-a7798c8b7302__notion-create-pages",
+      "mcp__3e354723-b4be-4625-a34f-a7798c8b7302__notion-update-page"
     ]
   }
 }

@@ -3,23 +3,28 @@
  *
  * Features:
  * - Zeitraum-Selector (1 Woche, 2 Wochen, 1 Monat, 3 Monate) mit dynamischem Soll-Faktor
- * - Kategorie-Übersicht oben: farbige Chips mit Progress-Ring, Klick → scroll zur Kategorie
- * - Inline +/- Buttons für current_qty (kein Modal nötig)
- * - Reichhaltigere Zeilen: Subcategory, Produktname, Notizen, MHD
- * - Filter, Suche, Add/Edit Modal
+ * - Kategorie-Tabs oben: farbige Chips mit Progress-Ring + MHD-Warn-Dots
+ * - Automatischer Mengen-Status (kein manuelles is_checked mehr)
+ * - Inline +/- Buttons + Tap-on-number Direkt-Eingabe
+ * - Sortier-Optionen: A-Z, Fehlend zuerst, MHD
+ * - Einkaufsliste-Export (fehlende Items mit geschätzten Preisen)
+ * - Completion-Animation wenn Kategorie zu 100% voll
+ * - scale_type im AddItem Modal
  */
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   Package, Search, Plus, Minus, CheckCircle2,
-  Circle, X, Calendar, Loader2, Apple,
+  X, Calendar, Loader2, Apple,
   Droplets, Sparkles, Heart, Flashlight, Wrench, FileText,
-  Baby, PawPrint, Filter, Clock,
+  Baby, PawPrint, Filter, Clock, ArrowUpDown,
+  ShoppingCart, Share2, AlertTriangle,
 } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import { useCitizenInventory, type InventoryStats } from '@/hooks/useCitizenInventory'
 import { useCitizenHousehold } from '@/hooks/useCitizenHousehold'
 import { useCitizenLocation } from '@/hooks/useCitizenLocation'
 import { germanDistricts } from '@/data/german-districts'
+import { BBK_CATEGORIES } from '@/data/bbk-supply-templates'
 import type { DbCitizenInventory, DbCitizenInventoryInsert, CitizenInventoryCategory } from '@/types/database'
 
 // ─── Category Config ──────────────────────────────────────
@@ -29,7 +34,7 @@ const CATEGORY_ORDER: CitizenInventoryCategory[] = [
   'notfallausruestung', 'werkzeuge', 'dokumente', 'babybedarf', 'tierbedarf',
 ]
 
-const CATEGORY_CONFIG: Record<CitizenInventoryCategory, {
+const CATEGORY_CONFIG: Record<string, {
   name: string
   icon: typeof Package
   color: string
@@ -42,7 +47,7 @@ const CATEGORY_CONFIG: Record<CitizenInventoryCategory, {
   lebensmittel: { name: 'Lebensmittel', icon: Apple, color: 'text-green-600', bgLight: 'bg-green-50', bgChip: 'bg-green-50 border-green-200', ringColor: 'stroke-green-500', borderColor: 'border-green-200' },
   hygiene: { name: 'Hygiene', icon: Sparkles, color: 'text-purple-600', bgLight: 'bg-purple-50', bgChip: 'bg-purple-50 border-purple-200', ringColor: 'stroke-purple-500', borderColor: 'border-purple-200' },
   medikamente: { name: 'Medikamente', icon: Heart, color: 'text-red-600', bgLight: 'bg-red-50', bgChip: 'bg-red-50 border-red-200', ringColor: 'stroke-red-500', borderColor: 'border-red-200' },
-  notfallausruestung: { name: 'Notfallausrüstung', icon: Flashlight, color: 'text-amber-600', bgLight: 'bg-amber-50', bgChip: 'bg-amber-50 border-amber-200', ringColor: 'stroke-amber-500', borderColor: 'border-amber-200' },
+  notfallausruestung: { name: 'Ausrüstung', icon: Flashlight, color: 'text-amber-600', bgLight: 'bg-amber-50', bgChip: 'bg-amber-50 border-amber-200', ringColor: 'stroke-amber-500', borderColor: 'border-amber-200' },
   werkzeuge: { name: 'Werkzeuge', icon: Wrench, color: 'text-gray-600', bgLight: 'bg-gray-50', bgChip: 'bg-gray-50 border-gray-200', ringColor: 'stroke-gray-500', borderColor: 'border-gray-200' },
   dokumente: { name: 'Dokumente', icon: FileText, color: 'text-slate-600', bgLight: 'bg-slate-50', bgChip: 'bg-slate-50 border-slate-200', ringColor: 'stroke-slate-500', borderColor: 'border-slate-200' },
   babybedarf: { name: 'Baby', icon: Baby, color: 'text-pink-600', bgLight: 'bg-pink-50', bgChip: 'bg-pink-50 border-pink-200', ringColor: 'stroke-pink-500', borderColor: 'border-pink-200' },
@@ -50,7 +55,7 @@ const CATEGORY_CONFIG: Record<CitizenInventoryCategory, {
 }
 
 // Full names for category sections
-const CATEGORY_FULL_NAMES: Record<CitizenInventoryCategory, string> = {
+const CATEGORY_FULL_NAMES: Record<string, string> = {
   getraenke: 'Getränke',
   lebensmittel: 'Lebensmittel',
   hygiene: 'Hygiene',
@@ -60,6 +65,40 @@ const CATEGORY_FULL_NAMES: Record<CitizenInventoryCategory, string> = {
   dokumente: 'Dokumente & Bargeld',
   babybedarf: 'Babybedarf',
   tierbedarf: 'Tierbedarf',
+}
+
+// ─── Price estimates per unit (EUR) for shopping list ──────
+// Lookup by item_name → estimated price per unit
+
+const PRICE_ESTIMATES: Record<string, number> = {}
+// Build from BBK_CATEGORIES
+for (const cat of BBK_CATEGORIES) {
+  for (const item of cat.items) {
+    if (item.estimatedPricePerUnit) {
+      PRICE_ESTIMATES[item.itemName] = item.estimatedPricePerUnit
+    }
+  }
+}
+// Fallback estimates for common items without explicit prices
+const FALLBACK_PRICES: Record<string, number> = {
+  'Trinkwasser': 0.30, 'Mineralwasser (mit Kohlensäure)': 0.40, 'Fruchtsaft (haltbar)': 1.50,
+  'Wasserkanister (faltbar)': 8.00, 'Entkeimungstabletten': 6.00, 'Nudeln': 1.20,
+  'Reis': 1.80, 'Haferflocken': 1.50, 'Zwieback': 1.20, 'Mehl': 0.80,
+  'Gemüsekonserven (gemischt)': 1.50, 'Bohnen/Linsen (Dose)': 1.20, 'Obstkonserven': 1.80,
+  'Dosenfisch (Thunfisch/Sardinen)': 2.50, 'H-Milch': 1.10, 'Speiseöl (Raps/Sonnenblume)': 2.50,
+  'Toilettenpapier': 0.50, 'Desinfektionsmittel (Hände)': 3.00, 'Seife/Waschlotion': 1.50,
+  'Schmerzmittel (Ibuprofen/Paracetamol)': 3.50, 'Pflaster und Verbandsmaterial': 5.00,
+  'Taschenlampe (LED)': 8.00, 'Batterien (AA/AAA Vorrat)': 0.80, 'Kurbelradio (UKW/DAB+)': 25.00,
+  'Powerbank (mind. 10.000 mAh)': 15.00, 'Campingkocher + Gaskartuschen': 25.00,
+  'Feuerlöscher/Feuerlöschspray': 20.00, 'Rauchmelder': 8.00, 'Atemschutzmaske (FFP2)': 1.50,
+  'Multitool/Taschenmesser': 15.00, 'Dosenöffner (manuell)': 4.00,
+  'Bargeld (kleine Scheine + Münzen)': 1.00,
+}
+
+function getEstimatedPrice(itemName: string, _unit?: string): number | null {
+  if (PRICE_ESTIMATES[itemName]) return PRICE_ESTIMATES[itemName]
+  if (FALLBACK_PRICES[itemName]) return FALLBACK_PRICES[itemName]
+  return null
 }
 
 // ─── Zeitraum Config ──────────────────────────────────────
@@ -80,19 +119,20 @@ const ZEITRAUM_OPTIONS: ZeitraumOption[] = [
 ]
 
 type StatusFilter = 'alle' | 'fehlend' | 'ablaufend' | 'komplett'
+type SortMode = 'az' | 'fehlend' | 'mhd'
 
 // ─── MHD Helper ───────────────────────────────────────────
 
-function getMhdStatus(expiryDate: string | null): { label: string; color: string } | null {
+function getMhdStatus(expiryDate: string | null): { label: string; color: string; isUrgent: boolean } | null {
   if (!expiryDate) return null
   const now = new Date()
   const exp = new Date(expiryDate)
   const diffDays = Math.floor((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 
-  if (diffDays < 0) return { label: 'Abgelaufen', color: 'bg-red-100 text-red-700' }
-  if (diffDays < 30) return { label: `${diffDays}d`, color: 'bg-orange-100 text-orange-700' }
-  if (diffDays < 180) return { label: `${Math.floor(diffDays / 30)} Mon.`, color: 'bg-yellow-100 text-yellow-700' }
-  return { label: `${Math.floor(diffDays / 30)} Mon.`, color: 'bg-green-100 text-green-700' }
+  if (diffDays < 0) return { label: 'Abgelaufen', color: 'bg-red-100 text-red-700', isUrgent: true }
+  if (diffDays < 30) return { label: `${diffDays}d`, color: 'bg-orange-100 text-orange-700', isUrgent: true }
+  if (diffDays < 180) return { label: `${Math.floor(diffDays / 30)} Mon.`, color: 'bg-yellow-100 text-yellow-700', isUrgent: false }
+  return { label: `${Math.floor(diffDays / 30)} Mon.`, color: 'bg-green-100 text-green-700', isUrgent: false }
 }
 
 // ─── Mini Progress Ring ──────────────────────────────────
@@ -132,7 +172,7 @@ function ProgressRing({ percent, colorClass, size = 32 }: { percent: number; col
 // ─── Page Component ───────────────────────────────────────
 
 export default function VorsorgePage() {
-  const { items, loading, stats, toggleChecked, updateItem, addItem, deleteItem, generateFromTemplate } = useCitizenInventory()
+  const { items, loading, stats, updateItem, addItem, deleteItem, generateFromTemplate } = useCitizenInventory()
   const { household, hasCompletedOnboarding } = useCitizenHousehold()
   const { location } = useCitizenLocation()
   const [generating, setGenerating] = useState(false)
@@ -140,6 +180,13 @@ export default function VorsorgePage() {
 
   // Active category tab (first one with items, or first in order)
   const [activeCategory, setActiveCategory] = useState<CitizenInventoryCategory | null>(null)
+
+  // Track recently completed categories for animation
+  const [completedCat, setCompletedCat] = useState<string | null>(null)
+  const prevCatStatsRef = useRef<Record<string, number>>({})
+
+  // Shopping list modal
+  const [showShoppingList, setShowShoppingList] = useState(false)
 
   // ─── Auto-Generate wenn Liste leer + Onboarding abgeschlossen ──
   useEffect(() => {
@@ -169,13 +216,13 @@ export default function VorsorgePage() {
   const [zeitraum, setZeitraum] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('alarmplaner-zeitraum') || '14d'
-      // Migrate old "10d" values
       if (saved === '10d') return '14d'
       return saved
     } catch { return '14d' }
   })
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('alle')
+  const [sortMode, setSortMode] = useState<SortMode>('az')
   const [editItem, setEditItem] = useState<DbCitizenInventory | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
 
@@ -187,11 +234,13 @@ export default function VorsorgePage() {
   }
 
   // Scale target_qty by zeitraum factor
-  const getScaledTarget = useCallback((baseTarget: number) => {
+  // per_person items (consumables) scale with time — per_household items (equipment) stay fixed
+  const getScaledTarget = useCallback((baseTarget: number, scaleType?: string) => {
+    if (scaleType === 'per_household') return baseTarget
     return Math.ceil(baseTarget * zeitraumOption.factor)
   }, [zeitraumOption.factor])
 
-  // ─── Filtered Items ──────────────────────────────────
+  // ─── Filtered + Sorted Items ──────────────────────────
 
   const filteredItems = useMemo(() => {
     let filtered = items
@@ -217,29 +266,57 @@ export default function VorsorgePage() {
       const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
       filtered = filtered.filter(i => i.expiry_date && new Date(i.expiry_date) < in30)
     } else if (statusFilter === 'komplett') {
-      filtered = filtered.filter(i => i.current_qty >= getScaledTarget(i.target_qty))
+      filtered = filtered.filter(i => i.current_qty >= getScaledTarget(i.target_qty, i.scale_type))
     }
 
-    // Sort alphabetically by item_name
-    filtered.sort((a, b) => a.item_name.localeCompare(b.item_name, 'de'))
+    // Sort
+    const sorted = [...filtered]
+    switch (sortMode) {
+      case 'fehlend':
+        sorted.sort((a, b) => {
+          const aRatio = getScaledTarget(a.target_qty, a.scale_type) > 0
+            ? a.current_qty / getScaledTarget(a.target_qty, a.scale_type)
+            : 1
+          const bRatio = getScaledTarget(b.target_qty, b.scale_type) > 0
+            ? b.current_qty / getScaledTarget(b.target_qty, b.scale_type)
+            : 1
+          return aRatio - bRatio
+        })
+        break
+      case 'mhd':
+        sorted.sort((a, b) => {
+          if (!a.expiry_date && !b.expiry_date) return a.item_name.localeCompare(b.item_name, 'de')
+          if (!a.expiry_date) return 1
+          if (!b.expiry_date) return -1
+          return new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime()
+        })
+        break
+      default: // 'az'
+        sorted.sort((a, b) => a.item_name.localeCompare(b.item_name, 'de'))
+    }
 
-    return filtered
-  }, [items, searchQuery, statusFilter, getScaledTarget, activeCategory])
+    return sorted
+  }, [items, searchQuery, statusFilter, getScaledTarget, activeCategory, sortMode])
 
   // Category stats — quantity-based progress (current_qty / scaledTarget per item)
   const allCategoryStats = useMemo(() => {
-    const result: Record<string, { total: number; fulfilled: number; percent: number; missing: number }> = {}
+    const result: Record<string, { total: number; fulfilled: number; percent: number; missing: number; expiring: number }> = {}
     const allGroups: Record<string, DbCitizenInventory[]> = {}
     for (const item of items) {
       if (!allGroups[item.category]) allGroups[item.category] = []
       allGroups[item.category].push(item)
     }
+
+    const now = new Date()
+    const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+
     for (const [cat, catItems] of Object.entries(allGroups)) {
       let fulfilled = 0
       let missing = 0
       let totalProgress = 0
+      let expiring = 0
       for (const item of catItems) {
-        const target = getScaledTarget(item.target_qty)
+        const target = getScaledTarget(item.target_qty, item.scale_type)
         const itemProgress = target > 0 ? Math.min(1, item.current_qty / target) : (item.current_qty > 0 ? 1 : 0)
         totalProgress += itemProgress
         if (item.current_qty >= target && target > 0) {
@@ -247,16 +324,38 @@ export default function VorsorgePage() {
         } else if (item.current_qty === 0) {
           missing++
         }
+        if (item.expiry_date) {
+          const expDate = new Date(item.expiry_date)
+          if (expDate < in30Days) expiring++
+        }
       }
       result[cat] = {
         total: catItems.length,
         fulfilled,
         percent: catItems.length > 0 ? Math.round((totalProgress / catItems.length) * 100) : 0,
         missing,
+        expiring,
       }
     }
     return result
   }, [items, getScaledTarget])
+
+  // Detect category completion for animation
+  useEffect(() => {
+    for (const [cat, stat] of Object.entries(allCategoryStats)) {
+      const prevPercent = prevCatStatsRef.current[cat] || 0
+      if (stat.percent === 100 && prevPercent < 100) {
+        setCompletedCat(cat)
+        setTimeout(() => setCompletedCat(null), 2000)
+      }
+    }
+    // Update ref
+    const newRef: Record<string, number> = {}
+    for (const [cat, stat] of Object.entries(allCategoryStats)) {
+      newRef[cat] = stat.percent
+    }
+    prevCatStatsRef.current = newRef
+  }, [allCategoryStats])
 
   // Categories that have items — known + custom
   const availableCategories = useMemo(() => {
@@ -282,10 +381,35 @@ export default function VorsorgePage() {
     if (items.length === 0) return 0
     let totalProgress = 0
     for (const item of items) {
-      const target = getScaledTarget(item.target_qty)
+      const target = getScaledTarget(item.target_qty, item.scale_type)
       totalProgress += target > 0 ? Math.min(1, item.current_qty / target) : (item.current_qty > 0 ? 1 : 0)
     }
     return Math.round((totalProgress / items.length) * 100)
+  }, [items, getScaledTarget])
+
+  // ─── Shopping List Data ──────────────────────────────
+  const shoppingListData = useMemo(() => {
+    const missing: Array<{ item: DbCitizenInventory; needed: number; price: number | null }> = []
+    let totalEstimate = 0
+
+    for (const item of items) {
+      const target = getScaledTarget(item.target_qty, item.scale_type)
+      const needed = target - item.current_qty
+      if (needed > 0) {
+        const unitPrice = getEstimatedPrice(item.item_name, item.unit)
+        const linePrice = unitPrice ? unitPrice * needed : null
+        if (linePrice) totalEstimate += linePrice
+        missing.push({ item, needed, price: linePrice })
+      }
+    }
+
+    // Sort by category, then name
+    missing.sort((a, b) => {
+      if (a.item.category !== b.item.category) return a.item.category.localeCompare(b.item.category)
+      return a.item.item_name.localeCompare(b.item.item_name, 'de')
+    })
+
+    return { missing, totalEstimate }
   }, [items, getScaledTarget])
 
   // ─── Inline Qty Change ──────────────────────────────
@@ -296,6 +420,10 @@ export default function VorsorgePage() {
     const newQty = Math.max(0, item.current_qty + delta)
     await updateItem(id, { current_qty: newQty })
   }, [items, updateItem])
+
+  const handleQtySet = useCallback(async (id: string, newQty: number) => {
+    await updateItem(id, { current_qty: Math.max(0, newQty) })
+  }, [updateItem])
 
   if (loading) {
     return (
@@ -349,32 +477,42 @@ export default function VorsorgePage() {
               const isComplete = stat.percent === 100
               const color = config?.color || 'text-indigo-600'
               const ringColor = config?.ringColor || 'stroke-indigo-500'
+              const hasExpiring = stat.expiring > 0
+              const isJustCompleted = completedCat === cat
 
               return (
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`flex flex-col items-center gap-1 px-3.5 py-3 text-center transition-all border-b-2 min-w-[72px] ${
+                  className={`relative flex flex-col items-center gap-1 px-3.5 py-3 text-center transition-all border-b-2 min-w-[72px] ${
                     isActive
                       ? `border-current ${color} bg-white`
                       : 'border-transparent text-text-muted hover:text-text-secondary hover:bg-surface-secondary/40'
-                  }`}
+                  } ${isJustCompleted ? 'animate-pulse' : ''}`}
                 >
+                  {/* MHD Warning Dot */}
+                  {hasExpiring && (
+                    <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-orange-500 ring-2 ring-white" />
+                  )}
                   <div className="relative flex items-center justify-center">
                     <ProgressRing
                       percent={stat.percent}
                       colorClass={isComplete ? 'stroke-green-500' : isActive ? ringColor : 'stroke-gray-300'}
                       size={28}
                     />
-                    <Icon className={`absolute h-3 w-3 ${isActive ? color : 'text-text-muted'}`} />
+                    {isComplete ? (
+                      <CheckCircle2 className="absolute h-3 w-3 text-green-500" />
+                    ) : (
+                      <Icon className={`absolute h-3 w-3 ${isActive ? color : 'text-text-muted'}`} />
+                    )}
                   </div>
                   <span className={`text-[10px] font-semibold leading-tight ${isActive ? color : ''}`}>
                     {config?.name || cat.charAt(0).toUpperCase() + cat.slice(1)}
                   </span>
                   <span className={`text-[9px] leading-tight ${
-                    isComplete ? 'text-green-600' : stat.missing > 0 ? 'text-red-500' : 'text-text-muted'
+                    isComplete ? 'text-green-600 font-bold' : stat.missing > 0 ? 'text-red-500' : 'text-text-muted'
                   }`}>
-                    {isComplete ? '✓' : `${stat.fulfilled}/${stat.total}`}
+                    {isComplete ? '✓ Voll' : `${stat.fulfilled}/${stat.total}`}
                   </span>
                 </button>
               )
@@ -383,10 +521,23 @@ export default function VorsorgePage() {
         </div>
       )}
 
-      {/* Stats */}
-      <StatsRow stats={stats} zeitraumLabel={zeitraumOption.label} qtyProgress={overallQtyProgress} />
+      {/* Stats + Shopping List Button */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <StatsRow stats={stats} zeitraumLabel={zeitraumOption.label} qtyProgress={overallQtyProgress} />
+        </div>
+        {shoppingListData.missing.length > 0 && (
+          <button
+            onClick={() => setShowShoppingList(true)}
+            className="mt-0 flex shrink-0 flex-col items-center gap-1 rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-primary-700 transition-colors hover:bg-primary-100"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            <span className="text-[10px] font-semibold">{shoppingListData.missing.length} fehlen</span>
+          </button>
+        )}
+      </div>
 
-      {/* Filters */}
+      {/* Filters + Sort */}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <div className="relative min-w-[200px] flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
@@ -421,6 +572,29 @@ export default function VorsorgePage() {
             </button>
           ))}
         </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-1">
+          <ArrowUpDown className="h-4 w-4 text-text-muted" />
+          {([
+            { id: 'az', label: 'A-Z' },
+            { id: 'fehlend', label: 'Fehlend' },
+            { id: 'mhd', label: 'MHD' },
+          ] as { id: SortMode; label: string }[]).map(s => (
+            <button
+              key={s.id}
+              onClick={() => setSortMode(s.id)}
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                sortMode === s.id
+                  ? 'bg-slate-200 text-slate-800'
+                  : 'bg-surface-secondary text-text-muted hover:bg-surface-secondary/80'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
         <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-primary-700"
@@ -458,6 +632,16 @@ export default function VorsorgePage() {
           </div>
         ) : activeCategory ? (
           <div className="overflow-hidden rounded-2xl border border-border bg-white">
+            {/* Completion banner */}
+            {completedCat === activeCategory && (
+              <div className="flex items-center gap-2 bg-green-50 px-5 py-2.5 text-green-700">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-xs font-semibold">
+                  🎉 {CATEGORY_FULL_NAMES[activeCategory] || activeCategory} ist vollständig!
+                </span>
+              </div>
+            )}
+
             {/* Column Headers */}
             <div className="flex items-center gap-3 border-b border-border/50 bg-surface-secondary/50 px-5 py-2">
               <div className="w-5 shrink-0" />
@@ -475,10 +659,10 @@ export default function VorsorgePage() {
               <ItemRow
                 key={item.id}
                 item={item}
-                scaledTarget={getScaledTarget(item.target_qty)}
-                onToggle={() => toggleChecked(item.id)}
+                scaledTarget={getScaledTarget(item.target_qty, item.scale_type)}
                 onEdit={() => setEditItem(item)}
                 onQtyChange={(delta) => handleQtyChange(item.id, delta)}
+                onQtySet={(qty) => handleQtySet(item.id, qty)}
               />
             ))}
 
@@ -523,6 +707,15 @@ export default function VorsorgePage() {
           }}
         />
       )}
+
+      {/* Shopping List Modal */}
+      {showShoppingList && (
+        <ShoppingListModal
+          data={shoppingListData}
+          zeitraumLabel={zeitraumOption.label}
+          onClose={() => setShowShoppingList(false)}
+        />
+      )}
     </div>
   )
 }
@@ -530,13 +723,12 @@ export default function VorsorgePage() {
 // ─── Stats Row ────────────────────────────────────────────
 
 function StatsRow({ stats, zeitraumLabel, qtyProgress }: { stats: InventoryStats; zeitraumLabel: string; qtyProgress: number }) {
-  const fulfilledItems = stats.totalItems - stats.missingItems
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <StatMini
         label="Abdeckung"
         value={`${qtyProgress}%`}
-        sub={`${fulfilledItems}/${stats.totalItems} Artikel vorrätig`}
+        sub={`${stats.fulfilledItems}/${stats.totalItems} Artikel vorrätig`}
         color={qtyProgress >= 80 ? 'text-green-600' : qtyProgress >= 40 ? 'text-amber-600' : 'text-red-600'}
       />
       <StatMini
@@ -571,37 +763,69 @@ function StatMini({ label, value, sub, color }: { label: string; value: string; 
   )
 }
 
-// ─── Item Row ─────────────────────────────────────────────
+// ─── Item Row (with inline qty editing) ──────────────────
 
 function ItemRow({
-  item, scaledTarget, onToggle, onEdit, onQtyChange,
+  item, scaledTarget, onEdit, onQtyChange, onQtySet,
 }: {
   item: DbCitizenInventory
   scaledTarget: number
-  onToggle: () => void
   onEdit: () => void
   onQtyChange: (delta: number) => void
+  onQtySet: (qty: number) => void
 }) {
   const mhd = getMhdStatus(item.expiry_date)
   const qtyPercent = scaledTarget > 0 ? Math.min(100, Math.round((item.current_qty / scaledTarget) * 100)) : 0
-  const isFulfilled = item.current_qty >= scaledTarget
+  const isFulfilled = item.current_qty >= scaledTarget && scaledTarget > 0
+
+  // Inline qty editing state
+  const [isEditingQty, setIsEditingQty] = useState(false)
+  const [editQtyValue, setEditQtyValue] = useState('')
+  const qtyInputRef = useRef<HTMLInputElement>(null)
+
+  const handleQtyClick = () => {
+    setEditQtyValue(String(item.current_qty))
+    setIsEditingQty(true)
+    // Focus happens via useEffect
+  }
+
+  useEffect(() => {
+    if (isEditingQty && qtyInputRef.current) {
+      qtyInputRef.current.focus()
+      qtyInputRef.current.select()
+    }
+  }, [isEditingQty])
+
+  const handleQtySubmit = () => {
+    const val = parseFloat(editQtyValue)
+    if (!isNaN(val) && val >= 0) {
+      onQtySet(val)
+    }
+    setIsEditingQty(false)
+  }
 
   return (
-    <div className="border-b border-border/50 px-5 py-3 last:border-b-0 transition-colors hover:bg-surface-secondary/30">
+    <div className={`border-b border-border/50 px-5 py-3 last:border-b-0 transition-all ${
+      isFulfilled ? 'bg-green-50/30' : ''
+    } hover:bg-surface-secondary/30`}>
       <div className="flex items-center gap-3">
-        {/* Checkbox */}
-        <button onClick={onToggle} className="shrink-0">
-          {item.is_checked ? (
+        {/* Auto Status Icon */}
+        <div className="shrink-0">
+          {isFulfilled ? (
             <CheckCircle2 className="h-5 w-5 text-green-500" />
+          ) : item.current_qty > 0 ? (
+            <div className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-amber-400">
+              <div className="h-2 w-2 rounded-full bg-amber-400" />
+            </div>
           ) : (
-            <Circle className="h-5 w-5 text-border" />
+            <div className="h-5 w-5 rounded-full border-2 border-gray-300" />
           )}
-        </button>
+        </div>
 
         {/* Name + Meta — klickbar für Edit */}
         <div className="min-w-0 flex-1 cursor-pointer" onClick={onEdit}>
           <div className="flex items-center gap-2">
-            <p className={`text-sm font-medium ${item.is_checked ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+            <p className={`text-sm font-medium ${isFulfilled ? 'text-green-700' : 'text-text-primary'}`}>
               {item.item_name}
             </p>
             {item.is_regional && (
@@ -624,7 +848,8 @@ function ItemRow({
               <span className="text-xs text-text-muted line-clamp-1">{item.notes}</span>
             )}
             {mhd && (
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${mhd.color}`}>
+              <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${mhd.color}`}>
+                {mhd.isUrgent && <AlertTriangle className="h-2.5 w-2.5" />}
                 MHD: {mhd.label}
               </span>
             )}
@@ -635,29 +860,55 @@ function ItemRow({
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => onQtyChange(-1)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:bg-surface-secondary hover:text-text-primary"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:bg-surface-secondary hover:text-text-primary active:scale-95"
           >
             <Minus className="h-3 w-3" />
           </button>
-          <div className="w-14 text-center">
-            <span className={`text-xs font-bold ${
-              isFulfilled ? 'text-green-600' : item.current_qty > 0 ? 'text-amber-600' : 'text-red-500'
-            }`}>
-              {item.current_qty}
-            </span>
-            <span className="text-xs text-text-muted">/{scaledTarget}</span>
-            <div className="mx-auto mt-0.5 h-1 w-full rounded-full bg-surface-secondary">
-              <div
-                className={`h-1 rounded-full transition-all ${
-                  qtyPercent >= 100 ? 'bg-green-500' : qtyPercent > 0 ? 'bg-amber-500' : 'bg-red-400'
-                }`}
-                style={{ width: `${qtyPercent}%` }}
+
+          {/* Tap-on-number direct input */}
+          {isEditingQty ? (
+            <div className="w-14 text-center">
+              <input
+                ref={qtyInputRef}
+                type="number"
+                value={editQtyValue}
+                onChange={(e) => setEditQtyValue(e.target.value)}
+                onBlur={handleQtySubmit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleQtySubmit()
+                  if (e.key === 'Escape') setIsEditingQty(false)
+                }}
+                min={0}
+                step="any"
+                className="w-full rounded-md border border-primary-400 bg-white px-1 py-0.5 text-center text-xs font-bold text-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
               />
             </div>
-          </div>
+          ) : (
+            <div
+              className="w-14 cursor-pointer text-center"
+              onClick={handleQtyClick}
+              title="Klicken für Direkteingabe"
+            >
+              <span className={`text-xs font-bold ${
+                isFulfilled ? 'text-green-600' : item.current_qty > 0 ? 'text-amber-600' : 'text-red-500'
+              }`}>
+                {item.current_qty}
+              </span>
+              <span className="text-xs text-text-muted">/{scaledTarget}</span>
+              <div className="mx-auto mt-0.5 h-1 w-full rounded-full bg-surface-secondary">
+                <div
+                  className={`h-1 rounded-full transition-all ${
+                    qtyPercent >= 100 ? 'bg-green-500' : qtyPercent > 0 ? 'bg-amber-500' : 'bg-red-400'
+                  }`}
+                  style={{ width: `${qtyPercent}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <button
             onClick={() => onQtyChange(1)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:bg-surface-secondary hover:text-text-primary"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:bg-surface-secondary hover:text-text-primary active:scale-95"
           >
             <Plus className="h-3 w-3" />
           </button>
@@ -808,7 +1059,7 @@ function EditItemModal({
   )
 }
 
-// ─── Add Item Modal ───────────────────────────────────────
+// ─── Add Item Modal (with scale_type) ────────────────────
 
 function AddItemModal({
   onClose, onSave, defaultCategory = 'lebensmittel',
@@ -822,6 +1073,7 @@ function AddItemModal({
   const [customCategory, setCustomCategory] = useState('')
   const [targetQty, setTargetQty] = useState(1)
   const [unit, setUnit] = useState('Stk')
+  const [scaleType, setScaleType] = useState<'per_person' | 'per_household'>('per_person')
   const [saving, setSaving] = useState(false)
 
   const effectiveCategory = category === '__custom__' ? customCategory.trim().toLowerCase().replace(/\s+/g, '_') : category
@@ -836,6 +1088,7 @@ function AddItemModal({
       target_qty: targetQty,
       current_qty: 0,
       unit,
+      scale_type: scaleType,
       is_custom: true,
       is_regional: false,
     })
@@ -873,7 +1126,7 @@ function AddItemModal({
               className="w-full rounded-xl border border-border px-4 py-2.5 text-sm focus:border-primary-600 focus:outline-none"
             >
               {Object.entries(CATEGORY_CONFIG).map(([key]) => (
-                <option key={key} value={key}>{CATEGORY_FULL_NAMES[key as CitizenInventoryCategory]}</option>
+                <option key={key} value={key}>{CATEGORY_FULL_NAMES[key] || key}</option>
               ))}
               <option value="__custom__">+ Neue Kategorie…</option>
             </select>
@@ -913,6 +1166,37 @@ function AddItemModal({
               </select>
             </div>
           </div>
+
+          {/* Scale Type Toggle */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-text-primary">Skalierung</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setScaleType('per_person')}
+                className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+                  scaleType === 'per_person'
+                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                    : 'border-border bg-white text-text-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                <span className="block font-semibold">Pro Person</span>
+                <span className="block text-[10px] opacity-70">Skaliert mit Zeitraum</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setScaleType('per_household')}
+                className={`flex-1 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+                  scaleType === 'per_household'
+                    ? 'border-primary-300 bg-primary-50 text-primary-700'
+                    : 'border-border bg-white text-text-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                <span className="block font-semibold">Pro Haushalt</span>
+                <span className="block text-[10px] opacity-70">Feste Menge (Ausrüstung)</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-6 py-4">
@@ -931,6 +1215,143 @@ function AddItemModal({
             Hinzufügen
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Shopping List Modal ─────────────────────────────────
+
+function ShoppingListModal({
+  data, zeitraumLabel, onClose,
+}: {
+  data: { missing: Array<{ item: DbCitizenInventory; needed: number; price: number | null }>; totalEstimate: number }
+  zeitraumLabel: string
+  onClose: () => void
+}) {
+  const handleShare = async () => {
+    const lines: string[] = [
+      `🛒 Einkaufsliste — Notfallvorsorge (${zeitraumLabel})`,
+      '━'.repeat(40),
+      '',
+    ]
+
+    let currentCat = ''
+    for (const { item, needed, price } of data.missing) {
+      const catName = CATEGORY_FULL_NAMES[item.category] || item.category
+      if (catName !== currentCat) {
+        currentCat = catName
+        lines.push(`\n📦 ${catName}`)
+      }
+      const priceStr = price ? ` (~${price.toFixed(2)}€)` : ''
+      lines.push(`  ☐ ${needed} ${item.unit} ${item.item_name}${priceStr}`)
+    }
+
+    if (data.totalEstimate > 0) {
+      lines.push('')
+      lines.push(`💰 Geschätzte Kosten: ~${data.totalEstimate.toFixed(2)}€`)
+    }
+
+    const text = lines.join('\n')
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Einkaufsliste', text })
+        return
+      } catch { /* fallback to clipboard */ }
+    }
+
+    try {
+      await navigator.clipboard.writeText(text)
+      alert('Einkaufsliste in Zwischenablage kopiert!')
+    } catch {
+      // Final fallback
+      const el = document.createElement('textarea')
+      el.value = text
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      alert('Einkaufsliste in Zwischenablage kopiert!')
+    }
+  }
+
+  // Group by category
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof data.missing>()
+    for (const entry of data.missing) {
+      const cat = entry.item.category
+      if (!map.has(cat)) map.set(cat, [])
+      map.get(cat)!.push(entry)
+    }
+    return map
+  }, [data.missing])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="mx-4 flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div>
+            <h3 className="flex items-center gap-2 font-bold text-text-primary">
+              <ShoppingCart className="h-5 w-5 text-primary-600" />
+              Einkaufsliste
+            </h3>
+            <p className="text-xs text-text-muted">{data.missing.length} fehlende Artikel für {zeitraumLabel}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-1.5 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Teilen
+            </button>
+            <button onClick={onClose} className="rounded-lg p-1 text-text-muted hover:bg-surface-secondary">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {Array.from(grouped.entries()).map(([cat, entries]) => {
+            const config = CATEGORY_CONFIG[cat]
+            const catName = CATEGORY_FULL_NAMES[cat] || cat
+            const Icon = config?.icon || Package
+
+            return (
+              <div key={cat} className="mb-4 last:mb-0">
+                <div className="mb-2 flex items-center gap-2">
+                  <Icon className={`h-4 w-4 ${config?.color || 'text-gray-500'}`} />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-text-muted">{catName}</h4>
+                  <span className="text-[10px] text-text-muted">({entries.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {entries.map(({ item, needed, price }) => (
+                    <div key={item.id} className="flex items-center justify-between rounded-lg bg-surface-secondary/50 px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-text-primary">{item.item_name}</p>
+                        <p className="text-xs text-text-muted">{needed} {item.unit} benötigt</p>
+                      </div>
+                      {price !== null && (
+                        <span className="shrink-0 text-xs font-semibold text-text-secondary">~{price.toFixed(2)}€</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Footer with total */}
+        {data.totalEstimate > 0 && (
+          <div className="flex items-center justify-between border-t border-border px-6 py-4">
+            <span className="text-sm font-medium text-text-secondary">Geschätzte Gesamtkosten</span>
+            <span className="text-lg font-bold text-text-primary">~{data.totalEstimate.toFixed(2)}€</span>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -170,9 +170,10 @@ export default function WissenssammlungPage() {
                 </button>
                 {isExpanded && (
                   <div className="border-t border-border px-6 py-5">
-                    <p className="text-sm leading-relaxed text-text-secondary whitespace-pre-line">
-                      {section.content}
-                    </p>
+                    <div
+                      className="prose-guide text-sm leading-relaxed text-text-secondary"
+                      dangerouslySetInnerHTML={{ __html: section.content }}
+                    />
                   </div>
                 )}
               </div>

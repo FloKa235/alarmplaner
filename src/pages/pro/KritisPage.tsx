@@ -3,7 +3,9 @@ import {
   ShieldCheck, ShieldX, Zap, ZapOff, ClipboardCheck, User, Building,
 } from 'lucide-react'
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import PageHeader from '@/components/ui/PageHeader'
+import KritisComplianceTab from './kritis/KritisComplianceTab'
 import Badge from '@/components/ui/Badge'
 import MapView, { type MapMarker } from '@/components/ui/MapView'
 import Modal, { FormField, inputClass, selectClass, ModalFooter, ConfirmDialog } from '@/components/ui/Modal'
@@ -70,8 +72,13 @@ const emptyForm = {
   last_inspected_at: '',
 }
 
+// ─── Tab Config ──────────────────────────────────────
+type KritisTab = 'infrastruktur' | 'compliance'
+
 export default function KritisPage() {
   const { districtId, loading: districtLoading } = useDistrict()
+  const location = useLocation()
+  const activeTab: KritisTab = location.pathname.endsWith('/compliance') ? 'compliance' : 'infrastruktur'
   const [searchQuery, setSearchQuery] = useState('')
   const [activeSector, setActiveSector] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -141,8 +148,8 @@ export default function KritisPage() {
         category: form.category,
         sector: meta?.sector || null,
         address: form.address.trim() || null,
-        latitude: form.latitude ? Number(form.latitude) : 0,
-        longitude: form.longitude ? Number(form.longitude) : 0,
+        latitude: form.latitude ? Number(form.latitude) : null,
+        longitude: form.longitude ? Number(form.longitude) : null,
         risk_exposure: form.risk_exposure,
         operator: form.operator.trim() || null,
         contact_name: form.contact_name.trim() || null,
@@ -230,21 +237,23 @@ export default function KritisPage() {
     )
   }
 
-  const kritisMarkers: MapMarker[] = (activeSector ? filtered : kritisSites).map((site) => ({
-    id: site.id,
-    lng: site.longitude,
-    lat: site.latitude,
-    label: site.name,
-    color: categoryMeta[site.category]?.markerColor || '#6b7280',
-    popup: `<strong>${site.name}</strong><br/>${categoryMeta[site.category]?.label || site.category}<br/>Risiko: ${site.risk_exposure || 'k.A.'}${site.contact_name ? `<br/>Kontakt: ${site.contact_name}` : ''}`,
-  }))
+  const kritisMarkers: MapMarker[] = filtered
+    .filter((site) => site.latitude !== 0 || site.longitude !== 0)
+    .map((site) => ({
+      id: site.id,
+      lng: site.longitude,
+      lat: site.latitude,
+      label: site.name,
+      color: categoryMeta[site.category]?.markerColor || '#6b7280',
+      popup: `<strong>${site.name}</strong><br/>${categoryMeta[site.category]?.label || site.category}<br/>Risiko: ${site.risk_exposure || 'k.A.'}${site.contact_name ? `<br/>Kontakt: ${site.contact_name}` : ''}`,
+    }))
 
   return (
     <div>
       <PageHeader
         title="Kritische Infrastruktur (KRITIS)"
         description={`Erfassung und Verwaltung kritischer Infrastrukturen im Landkreis (${kritisSites.length} Einträge)`}
-        actions={
+        actions={activeTab === 'infrastruktur' ? (
           <div className="flex gap-2">
             <button onClick={handleOsmImport} disabled={osmLoading}
               className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary disabled:opacity-50 disabled:cursor-not-allowed">
@@ -255,8 +264,19 @@ export default function KritisPage() {
               <Plus className="h-4 w-4" /> Objekt hinzufügen
             </button>
           </div>
-        }
+        ) : undefined}
       />
+
+      {/* ─── Compliance Tab ──────────────────────── */}
+      {activeTab === 'compliance' && districtId && (
+        <div className="mt-6">
+          <KritisComplianceTab districtId={districtId} />
+        </div>
+      )}
+
+      {/* ─── Infrastruktur Tab ──────────────────── */}
+      {activeTab === 'infrastruktur' && (<>
+
 
       {/* OSM Banners */}
       {osmLoading && (
@@ -504,6 +524,8 @@ export default function KritisPage() {
           </div>
         </div>
       )}
+
+      </>)}
 
       {/* Create / Edit Modal — erweitert */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editId ? 'KRITIS-Objekt bearbeiten' : 'KRITIS-Objekt hinzufügen'} size="lg">

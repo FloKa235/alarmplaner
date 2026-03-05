@@ -4,6 +4,9 @@
  * Verwaltet citizen_inventory in Supabase.
  * generateFromTemplate() erstellt die initiale Vorratsliste basierend auf
  * BBK-Templates × Haushaltsgröße + regionale Risiko-Items.
+ *
+ * Stats sind komplett Mengen-basiert (current_qty vs scaledTarget).
+ * is_checked wird nicht mehr verwendet — der Status ergibt sich automatisch.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -18,14 +21,14 @@ import type { CitizenLocation } from '@/hooks/useCitizenLocation'
 
 export interface InventoryStats {
   totalItems: number
-  checkedItems: number
-  progressPercent: number
-  expiringItems: number       // MHD < 30 Tage
-  expiredItems: number        // MHD überschritten
-  missingItems: number        // current_qty = 0
+  fulfilledItems: number        // current_qty >= target_qty (Basis, ohne Zeitraum-Faktor)
+  progressPercent: number       // Mengen-basierter Fortschritt
+  expiringItems: number         // MHD < 30 Tage
+  expiredItems: number          // MHD überschritten
+  missingItems: number          // current_qty = 0
   categoriesTotal: number
   categoriesComplete: number
-  categoryStats: Record<CitizenInventoryCategory, { total: number; checked: number; percent: number }>
+  categoryStats: Record<string, { total: number; fulfilled: number; percent: number; expiring: number }>
 }
 
 // ─── Hook Return ─────────────────────────────────────────
@@ -36,7 +39,6 @@ interface UseCitizenInventoryReturn {
   error: string | null
   stats: InventoryStats
   // CRUD
-  toggleChecked: (id: string) => Promise<void>
   updateItem: (id: string, updates: Partial<DbCitizenInventoryInsert>) => Promise<void>
   addItem: (item: Omit<DbCitizenInventoryInsert, 'user_id'>) => Promise<void>
   deleteItem: (id: string) => Promise<void>
@@ -69,9 +71,9 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
     for (const item of data) {
       const key = `${item.category}::${item.item_name}`
       if (seen.has(key)) {
-        // Keep the one with higher current_qty or is_checked, delete the other
+        // Keep the one with higher current_qty, delete the other
         const existing = seen.get(key)!
-        const keepExisting = existing.current_qty >= item.current_qty && (existing.is_checked || !item.is_checked)
+        const keepExisting = existing.current_qty >= item.current_qty
         if (keepExisting) {
           duplicateIds.push(item.id)
         } else {
@@ -140,63 +142,70 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
     fetchItems()
   }, [fetchItems])
 
-  // ─── Stats ──────────────────────────────────────────────
+  // ─── Stats (Mengen-basiert) ──────────────────────────────
 
   const stats = useMemo<InventoryStats>(() => {
     const now = new Date()
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    const categoryStatsMap = {} as Record<CitizenInventoryCategory, { total: number; checked: number; percent: number }>
-    const categories: CitizenInventoryCategory[] = [
-      'getraenke', 'lebensmittel', 'hygiene', 'medikamente',
-      'notfallausruestung', 'werkzeuge', 'dokumente', 'babybedarf', 'tierbedarf',
-    ]
-    for (const cat of categories) {
-      categoryStatsMap[cat] = { total: 0, checked: 0, percent: 0 }
-    }
+    const categoryStatsMap: Record<string, { total: number; fulfilled: number; percent: number; expiring: number }> = {}
 
     let expiringItems = 0
     let expiredItems = 0
     let missingItems = 0
-    let checkedItems = 0
+    let fulfilledItems = 0
+    let totalProgress = 0
 
     for (const item of items) {
-      const catStats = categoryStatsMap[item.category as CitizenInventoryCategory]
-      if (catStats) {
-        catStats.total++
-        if (item.is_checked) catStats.checked++
+      // Init category if needed
+      if (!categoryStatsMap[item.category]) {
+        categoryStatsMap[item.category] = { total: 0, fulfilled: 0, percent: 0, expiring: 0 }
+      }
+      const catStats = categoryStatsMap[item.category]
+      catStats.total++
+
+      // Mengen-basierter Status (Basis-Target, ohne Zeitraum-Faktor — der wird in der UI angewandt)
+      const target = item.target_qty
+      const isFulfilled = target > 0 ? item.current_qty >= target : item.current_qty > 0
+      if (isFulfilled) {
+        fulfilledItems++
+        catStats.fulfilled++
       }
 
-      if (item.is_checked) checkedItems++
+      // Progress contribution
+      const itemProgress = target > 0 ? Math.min(1, item.current_qty / target) : (item.current_qty > 0 ? 1 : 0)
+      totalProgress += itemProgress
+
       if (item.current_qty === 0 && item.target_qty > 0) missingItems++
 
       if (item.expiry_date) {
         const expDate = new Date(item.expiry_date)
         if (expDate < now) {
           expiredItems++
+          catStats.expiring++
         } else if (expDate < in30Days) {
           expiringItems++
+          catStats.expiring++
         }
       }
     }
 
-    // Calculate percentages
-    for (const cat of categories) {
+    // Calculate percentages per category
+    for (const cat of Object.keys(categoryStatsMap)) {
       const cs = categoryStatsMap[cat]
-      cs.percent = cs.total > 0 ? Math.round((cs.checked / cs.total) * 100) : 0
+      cs.percent = cs.total > 0 ? Math.round((cs.fulfilled / cs.total) * 100) : 0
     }
 
-    const categoriesComplete = categories.filter(c => {
-      const cs = categoryStatsMap[c]
-      return cs.total > 0 && cs.checked === cs.total
-    }).length
+    const categoriesComplete = Object.values(categoryStatsMap).filter(cs =>
+      cs.total > 0 && cs.fulfilled === cs.total
+    ).length
 
-    const categoriesTotal = categories.filter(c => categoryStatsMap[c].total > 0).length
+    const categoriesTotal = Object.values(categoryStatsMap).filter(cs => cs.total > 0).length
 
     return {
       totalItems: items.length,
-      checkedItems,
-      progressPercent: items.length > 0 ? Math.round((checkedItems / items.length) * 100) : 0,
+      fulfilledItems,
+      progressPercent: items.length > 0 ? Math.round((totalProgress / items.length) * 100) : 0,
       expiringItems,
       expiredItems,
       missingItems,
@@ -207,26 +216,6 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
   }, [items])
 
   // ─── CRUD ───────────────────────────────────────────────
-
-  const toggleChecked = useCallback(async (id: string) => {
-    const item = items.find(i => i.id === id)
-    if (!item) return
-
-    const newChecked = !item.is_checked
-    // Optimistic update
-    setItems(prev => prev.map(i => i.id === id ? { ...i, is_checked: newChecked } : i))
-
-    const { error } = await supabase
-      .from('citizen_inventory')
-      .update({ is_checked: newChecked })
-      .eq('id', id)
-
-    if (error) {
-      // Revert
-      setItems(prev => prev.map(i => i.id === id ? { ...i, is_checked: !newChecked } : i))
-      console.error('Toggle fehlgeschlagen:', error)
-    }
-  }, [items])
 
   const updateItem = useCallback(async (id: string, updates: Partial<DbCitizenInventoryInsert>) => {
     // Optimistic update
@@ -321,6 +310,7 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
             target_qty: calculateTargetQty(item, persons),
             current_qty: 0,
             unit: item.unit,
+            scale_type: item.scaleType,
             notes: item.notes ?? null,
             is_custom: false,
             is_regional: false,
@@ -346,6 +336,7 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
           target_qty: qty,
           current_qty: 0,
           unit: rItem.unit,
+          scale_type: rItem.scaleType,
           notes: rItem.notes ?? null,
           is_custom: false,
           is_regional: true,
@@ -376,7 +367,6 @@ export function useCitizenInventory(): UseCitizenInventoryReturn {
     loading,
     error,
     stats,
-    toggleChecked,
     updateItem,
     addItem,
     deleteItem,

@@ -1,4 +1,4 @@
-import { Bell, Plus, Send, Users, Clock, CheckCircle2, Loader2, Sparkles, X, MapPin, Building2, ArrowUpRight } from 'lucide-react'
+import { Bell, Send, Users, Clock, CheckCircle2, Loader2, Sparkles, X, MapPin, Building2, ArrowUpRight } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import PageHeader from '@/components/ui/PageHeader'
@@ -273,10 +273,6 @@ export default function AlarmierungPage() {
           <Users className="h-4 w-4" />
           Kontakte verwalten
         </Link>
-        <button className="flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-secondary">
-          <Plus className="h-4 w-4" />
-          Alarm-Vorlage
-        </button>
       </div>
 
       {/* Alert list */}

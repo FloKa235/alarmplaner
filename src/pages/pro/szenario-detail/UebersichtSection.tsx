@@ -12,11 +12,11 @@ import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Activity, CheckCircle2, Users, Shield, Landmark,
-  ArrowRight, Zap, Circle,
+  ArrowRight, Zap, Circle, ClipboardList,
   BookOpen, Upload, Sparkles, Loader2, X,
   Edit3, UserCircle, AlertTriangle, RotateCcw,
 } from 'lucide-react'
-import type { DbScenario, ScenarioHandbookV3, EskalationsStufe } from '@/types/database'
+import type { DbScenario, DbChecklist, ChecklistItem, ScenarioHandbookV3, EskalationsStufe } from '@/types/database'
 import type { ReadinessResult, ReadinessCheck, TabKey } from './helpers/readiness-checks'
 import type { StabsRolle } from './helpers/handbook-extract'
 import {
@@ -31,6 +31,7 @@ interface UebersichtSectionProps {
   readiness: ReadinessResult
   eskalationsstufen: EskalationsStufe[]
   krisenstabRollen: StabsRolle[]
+  scenarioChecklists: DbChecklist[]
   onNavigateTab: (tab: TabKey) => void
   onOpenMetaModal: () => void
   // CTA props
@@ -47,7 +48,7 @@ interface UebersichtSectionProps {
 
 export default function UebersichtSection({
   scenario, handbook, readiness,
-  eskalationsstufen, krisenstabRollen,
+  eskalationsstufen, krisenstabRollen, scenarioChecklists,
   onNavigateTab, onOpenMetaModal,
   enriching, onEnrich, uploadedFileName, uploadingDoc, onUploadClick, onClearUpload,
   hasExistingHandbook, isHandbookEdited,
@@ -356,7 +357,7 @@ export default function UebersichtSection({
             <EskalationsCard
               key={stufe.stufe}
               stufe={stufe}
-              onClick={() => onNavigateTab(`stufe${stufe.stufe}` as TabKey)}
+              onClick={() => onNavigateTab('eskalation')}
             />
           ))}
         </div>
@@ -393,6 +394,62 @@ export default function UebersichtSection({
         )
       })()}
 
+      {/* ═══ Szenario-Checklisten Summary ═══ */}
+      {(() => {
+        const allItems = scenarioChecklists.flatMap(c => (c.items as ChecklistItem[]))
+        const clTotal = allItems.length
+        const clDone = allItems.filter(i => i.status === 'done').length
+        const clPct = clTotal > 0 ? Math.round((clDone / clTotal) * 100) : 0
+
+        return (
+          <div className="rounded-2xl border border-border bg-white p-6">
+            <div className="mb-3 flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-violet-500" />
+              <span className="text-sm font-bold text-text-primary">Szenario-Checklisten</span>
+            </div>
+
+            {scenarioChecklists.length > 0 ? (
+              <div>
+                <div className="mb-3 flex items-center gap-4">
+                  <span className="text-sm text-text-secondary">
+                    <strong className="font-bold text-text-primary">{scenarioChecklists.length}</strong> Checklisten
+                  </span>
+                  <span className="text-sm text-text-secondary">
+                    <strong className="font-bold text-text-primary">{clDone}/{clTotal}</strong> Aufgaben erledigt
+                  </span>
+                </div>
+                <div className="mb-3 h-2 overflow-hidden rounded-full bg-surface-secondary">
+                  <div
+                    className={`h-full rounded-full transition-all ${clPct === 100 ? 'bg-green-500' : clPct > 0 ? 'bg-violet-500' : 'bg-gray-300'}`}
+                    style={{ width: `${clPct}%` }}
+                  />
+                </div>
+                <Link
+                  to="/pro/vorbereitung"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 transition-colors hover:text-violet-700"
+                >
+                  Zur Vorbereitung <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-text-muted">
+                  {handbook
+                    ? 'Keine szenario-spezifischen Checklisten vorhanden.'
+                    : 'Handbuch generieren für automatische Checklisten.'}
+                </p>
+                <Link
+                  to="/pro/vorbereitung"
+                  className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-violet-600 transition-colors hover:text-violet-700"
+                >
+                  Zur Vorbereitung <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
       {/* ═══ Wichtigste Ansprechpartner ═══ */}
       <div className="rounded-2xl border border-border bg-white p-6">
         <div className="mb-4 flex items-center gap-2">
@@ -407,7 +464,7 @@ export default function UebersichtSection({
               {krisenstabRollen.map(rolle => (
                 <button
                   key={rolle.rolle}
-                  onClick={() => onNavigateTab('stufe2')}
+                  onClick={() => onNavigateTab('eskalation')}
                   className="flex items-center gap-2.5 rounded-xl bg-surface-secondary/50 px-3 py-2.5 text-left transition-colors hover:bg-surface-secondary"
                 >
                   <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold text-white ${ROLLE_COLORS[rolle.rolle] || 'bg-gray-500'}`}>

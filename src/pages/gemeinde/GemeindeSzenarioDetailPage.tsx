@@ -1,7 +1,7 @@
 /**
  * GemeindeSzenarioDetailPage — Szenario-Detail für Bürgermeister
  *
- * Volle 7-Tab-Struktur wie SzenarioDetailPage (Pro),
+ * 4-Tab-Struktur wie SzenarioDetailPage (Pro),
  * aber scoped auf die Gemeinde. Eigene Szenarien sind editierbar,
  * Landkreis-Szenarien werden read-only angezeigt.
  */
@@ -9,7 +9,8 @@ import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   Flame, Sparkles, Save, ArrowLeft,
-  Loader2, FileText, Eye, ClipboardCheck, Package, Lock,
+  Loader2, FileText, Eye, Package, Lock, ShieldAlert,
+  ChevronDown, ChevronRight,
 } from 'lucide-react'
 import ErrorBanner from '@/components/ui/ErrorBanner'
 import { useSupabaseSingle, useSupabaseQuery } from '@/hooks/useSupabaseQuery'
@@ -39,7 +40,6 @@ import AlarmierungSection from '../pro/szenario-detail/AlarmierungSection'
 import KommunikationSection from '../pro/szenario-detail/KommunikationSection'
 import RessourcenSection from '../pro/szenario-detail/RessourcenSection'
 import HandbuchDokumenteSection from '../pro/szenario-detail/HandbuchDokumenteSection'
-import ChecklistenSection from '../pro/szenario-detail/ChecklistenSection'
 import InventarSection from '../pro/szenario-detail/InventarSection'
 
 // Modals (reuse from Pro)
@@ -47,12 +47,9 @@ import MetadatenModal from '../pro/szenario-detail/modals/MetadatenModal'
 import AlarmketteEditModal from '../pro/szenario-detail/modals/AlarmketteEditModal'
 
 // ─── Tab-Config ─────────────────────────────────────
-const TABS: { key: TabKey; label: string; icon?: typeof Flame; stufeNr?: 1 | 2 | 3 }[] = [
+const TABS: { key: TabKey; label: string; icon: typeof Flame }[] = [
   { key: 'uebersicht', label: 'Übersicht', icon: Eye },
-  { key: 'stufe1', label: 'Vorwarnung', stufeNr: 1 },
-  { key: 'stufe2', label: 'Akuter Vorfall', stufeNr: 2 },
-  { key: 'stufe3', label: 'Katastrophe', stufeNr: 3 },
-  { key: 'checklisten', label: 'Checklisten', icon: ClipboardCheck },
+  { key: 'eskalation', label: 'Eskalationsstufen', icon: ShieldAlert },
   { key: 'inventar', label: 'Inventar', icon: Package },
   { key: 'handbuch', label: 'Handbuch & Dokumente', icon: FileText },
 ]
@@ -91,9 +88,9 @@ export default function GemeindeSzenarioDetailPage() {
     [districtId]
   )
 
-  const { data: vorbereitungChecklisten } = useSupabaseQuery<DbChecklist>(
+  const { data: scenarioChecklists } = useSupabaseQuery<DbChecklist>(
     (sb) => sb.from('checklists').select('*')
-      .eq('scenario_id', id!).eq('category', 'vorbereitung'),
+      .eq('scenario_id', id!).neq('category', 'vorbereitung'),
     [id]
   )
 
@@ -175,6 +172,16 @@ export default function GemeindeSzenarioDetailPage() {
     }
   }
 
+  // ─── Eskalation Accordion State ─────────────────────
+  const [expandedStufen, setExpandedStufen] = useState<Set<number>>(new Set([0, 1, 2]))
+  const toggleStufeExpand = useCallback((idx: number) => {
+    setExpandedStufen(prev => {
+      const next = new Set(prev)
+      next.has(idx) ? next.delete(idx) : next.add(idx)
+      return next
+    })
+  }, [])
+
   // ─── Alarmkette Modal (pro Stufe) ─────────────────────
   const [alarmketteModalStufeIdx, setAlarmketteModalStufeIdx] = useState<number | null>(null)
 
@@ -198,9 +205,9 @@ export default function GemeindeSzenarioDetailPage() {
     krisenstabRollen,
     alertContacts,
     inventoryItems,
-    vorbereitungChecklisten,
+    scenarioChecklists,
     szenarioInventoryItems,
-  }), [eskalationsstufen, krisenstabRollen, alertContacts, inventoryItems, vorbereitungChecklisten, szenarioInventoryItems])
+  }), [eskalationsstufen, krisenstabRollen, alertContacts, inventoryItems, scenarioChecklists, szenarioInventoryItems])
 
   // ─── KI-Handbook Enrichment ───────────────────────────
   const [uploadedDocId, setUploadedDocId] = useState<string | null>(null)
@@ -399,13 +406,12 @@ export default function GemeindeSzenarioDetailPage() {
         />
       )}
 
-      {/* ═══ 7-TAB-LEISTE ═══ */}
+      {/* ═══ 4-TAB-LEISTE ═══ */}
       <div className="mb-4 overflow-x-auto border-b border-border">
         <div className="flex min-w-max gap-1" role="tablist" aria-label="Szenario-Bereiche">
           {TABS.map(tab => {
             const isActive = activeTab === tab.key
             const Icon = tab.icon
-            const stufeColors = tab.stufeNr ? ESKALATION_COLORS[tab.stufeNr] : null
             return (
               <button
                 key={tab.key}
@@ -416,19 +422,13 @@ export default function GemeindeSzenarioDetailPage() {
                 onClick={() => setActiveTab(tab.key)}
                 className={`flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
                   isActive
-                    ? stufeColors ? `${stufeColors.borderB} ${stufeColors.text}` : 'border-primary-600 text-primary-600'
+                    ? 'border-primary-600 text-primary-600'
                     : 'border-transparent text-text-secondary hover:border-gray-300 hover:text-text-primary'
                 }`}
               >
-                {stufeColors ? (
-                  <span className={`flex h-5 w-5 items-center justify-center rounded-full ${stufeColors.dot} text-[10px] font-bold text-white`}>
-                    {tab.stufeNr}
-                  </span>
-                ) : Icon ? (
-                  <Icon className="h-4 w-4" />
-                ) : null}
+                <Icon className="h-4 w-4" />
                 {tab.label}
-                {eskalationDirty && tab.stufeNr && !isReadOnly && (
+                {eskalationDirty && tab.key === 'eskalation' && !isReadOnly && (
                   <span className="ml-1 h-1.5 w-1.5 rounded-full bg-orange-400" />
                 )}
               </button>
@@ -446,6 +446,7 @@ export default function GemeindeSzenarioDetailPage() {
             readiness={readiness}
             eskalationsstufen={eskalationsstufen}
             krisenstabRollen={krisenstabRollen}
+            scenarioChecklists={scenarioChecklists}
             onNavigateTab={setActiveTab}
             onOpenMetaModal={isReadOnly ? () => {} : () => setShowMetaModal(true)}
             enriching={enriching}
@@ -459,56 +460,74 @@ export default function GemeindeSzenarioDetailPage() {
           />
         )}
 
-        {/* ═══ Stufen-Tabs (1–3) ═══ */}
-        {(activeTab === 'stufe1' || activeTab === 'stufe2' || activeTab === 'stufe3') && (() => {
-          const stufeIdx = activeTab === 'stufe1' ? 0 : activeTab === 'stufe2' ? 1 : 2
-          const currentStufe = eskalationsstufen[stufeIdx]
-          if (!currentStufe) return null
-          return (
-            <div className="space-y-6">
-              <StufeHeaderSection
-                stufe={currentStufe}
-                stufeIdx={stufeIdx}
-                onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
-              />
+        {/* ═══ Eskalationsstufen-Tab: 3 Accordion-Sektionen ═══ */}
+        {activeTab === 'eskalation' && (
+          <div className="space-y-4">
+            {eskalationsstufen.map((stufe, stufeIdx) => {
+              const colors = ESKALATION_COLORS[stufe.stufe]
+              const isExpanded = expandedStufen.has(stufeIdx)
+              return (
+                <div key={stufe.stufe} className={`rounded-2xl border ${colors.border} bg-white overflow-hidden`}>
+                  {/* Accordion Header */}
+                  <button
+                    onClick={() => toggleStufeExpand(stufeIdx)}
+                    className={`flex w-full items-center gap-3 ${colors.headerBg} px-5 py-4 text-left transition-colors`}
+                  >
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${colors.dot} text-sm font-bold text-white`}>
+                      {stufe.stufe}
+                    </span>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-text-primary">{stufe.name}</h3>
+                      <p className="text-xs text-text-muted">
+                        {stufe.checkliste.length} Schritte · {stufe.alarmkette.length} Alarmketten-Einträge
+                      </p>
+                    </div>
+                    {isExpanded ? (
+                      <ChevronDown className={`h-5 w-5 ${colors.text}`} />
+                    ) : (
+                      <ChevronRight className={`h-5 w-5 ${colors.text}`} />
+                    )}
+                  </button>
 
-              <HandlungsplanSection
-                eskalationsstufen={eskalationsstufen}
-                handbook={handbookV3}
-                onChange={isReadOnly ? (() => {}) : handleEskalationChange}
-                filterStufeIdx={stufeIdx}
-              />
-
-              {districtId && (
-                <AlarmierungSection
-                  eskalationsstufen={eskalationsstufen}
-                  krisenstabRollen={krisenstabRollen}
-                  alertContacts={alertContacts}
-                  onOpenAlarmketteModal={isReadOnly ? () => {} : (idx) => setAlarmketteModalStufeIdx(idx)}
-                  filterStufeIdx={stufeIdx}
-                />
-              )}
-
-              <KommunikationSection
-                stufe={currentStufe}
-                stufeIdx={stufeIdx}
-                onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
-              />
-
-              <RessourcenSection
-                stufe={currentStufe}
-                stufeIdx={stufeIdx}
-                onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
-              />
-            </div>
-          )
-        })()}
-
-        {activeTab === 'checklisten' && districtId && (
-          <ChecklistenSection
-            scenarioId={id!}
-            districtId={districtId}
-          />
+                  {/* Accordion Body */}
+                  {isExpanded && (
+                    <div className="space-y-6 p-5">
+                      <StufeHeaderSection
+                        stufe={stufe}
+                        stufeIdx={stufeIdx}
+                        onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
+                      />
+                      <HandlungsplanSection
+                        eskalationsstufen={eskalationsstufen}
+                        handbook={handbookV3}
+                        onChange={isReadOnly ? (() => {}) : handleEskalationChange}
+                        filterStufeIdx={stufeIdx}
+                      />
+                      {districtId && (
+                        <AlarmierungSection
+                          eskalationsstufen={eskalationsstufen}
+                          krisenstabRollen={krisenstabRollen}
+                          alertContacts={alertContacts}
+                          onOpenAlarmketteModal={isReadOnly ? () => {} : (idx) => setAlarmketteModalStufeIdx(idx)}
+                          filterStufeIdx={stufeIdx}
+                        />
+                      )}
+                      <KommunikationSection
+                        stufe={stufe}
+                        stufeIdx={stufeIdx}
+                        onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
+                      />
+                      <RessourcenSection
+                        stufe={stufe}
+                        stufeIdx={stufeIdx}
+                        onChange={isReadOnly ? (() => {}) : handleStufeFieldUpdate}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
 
         {activeTab === 'inventar' && districtId && (
