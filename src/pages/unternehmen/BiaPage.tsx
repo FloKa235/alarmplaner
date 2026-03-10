@@ -32,7 +32,7 @@ export default function BiaPage() {
     setShowModal(true)
   }
 
-  const handleSave = async (data: Omit<DbBusinessProcessInsert, 'district_id'>) => {
+  const handleSave = async (data: Omit<DbBusinessProcessInsert, 'organization_id'>) => {
     setSaving(true)
     try {
       if (editingItem) {
