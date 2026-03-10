@@ -78,14 +78,10 @@ const OSM_KRITIS_MAPPINGS: OsmTagMapping[] = [
   { overpassFilter: '["military"="barracks"]', category: 'kaserne', sector: 'militaer', labelDe: 'Kaserne' },
 ]
 
-// ─── Batch-Aufteilung nach Sektoren ──────────────────────
-// 5 Batches um Overpass nicht zu überlasten
-const BATCH_SECTORS = [
-  ['energie', 'wasser'],
-  ['ernaehrung', 'gesundheit'],
-  ['transport', 'it_telekom'],
-  ['finanz', 'staat'],
-  ['medien', 'wasserbau', 'militaer'],
+// ─── Batch-Aufteilung (Fallback: 2 parallele statt 5 sequentielle) ──
+const FALLBACK_BATCHES = [
+  ['energie', 'wasser', 'ernaehrung', 'gesundheit', 'transport'],
+  ['it_telekom', 'finanz', 'staat', 'medien', 'wasserbau', 'militaer'],
 ]
 
 // ─── Haversine-Distanz (km) ──────────────────────────────
@@ -131,13 +127,17 @@ async function queryOverpass(query: string, retries = 3): Promise<OverpassElemen
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       console.log(`Overpass (Versuch ${attempt}/${retries})...`)
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 55000) // 55s hard limit
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
       if (response.status === 429 || response.status === 504) {
-        const waitMs = attempt * 5000
+        const waitMs = attempt * 3000
         console.warn(`Overpass ${response.status} – warte ${waitMs}ms...`)
         await new Promise((r) => setTimeout(r, waitMs))
         continue
@@ -147,7 +147,7 @@ async function queryOverpass(query: string, retries = 3): Promise<OverpassElemen
       return (data.elements || []) as OverpassElement[]
     } catch (err) {
       console.warn(`Overpass Versuch ${attempt} fehlgeschlagen:`, err)
-      if (attempt < retries) await new Promise((r) => setTimeout(r, attempt * 3000))
+      if (attempt < retries) await new Promise((r) => setTimeout(r, attempt * 2000))
     }
   }
   return []
@@ -217,63 +217,49 @@ Deno.serve(async (req) => {
 
     console.log(`KRITIS-Import (BBK-Sektoren) für "${district.name}" – AGS: ${ags5}`)
 
-    // ─── Overpass-Abfragen in 5 Batches ────────────────────
+    // ─── Overpass: 1 Query statt 5 sequentielle ─────────────
     // deno-lint-ignore no-explicit-any
     const allSites: any[] = []
     const seenOsmIds = new Set<string>()
 
-    for (let batchIdx = 0; batchIdx < BATCH_SECTORS.length; batchIdx++) {
-      const sectors = BATCH_SECTORS[batchIdx]
-      const batchMappings = OSM_KRITIS_MAPPINGS.filter((m) => sectors.includes(m.sector))
-      if (batchMappings.length === 0) continue
-
-      console.log(`Batch ${batchIdx + 1}/${BATCH_SECTORS.length}: ${sectors.join(', ')} (${batchMappings.length} Filter)`)
-
-      // nwr = node, way, relation shorthand
-      const filterStatements = batchMappings.map((m) =>
+    // Hilfsfunktion: Overpass-Query bauen + Elemente verarbeiten
+    function buildQuery(mappings: OsmTagMapping[]): string {
+      const filterStatements = mappings.map((m) =>
         `  nwr${m.overpassFilter}(area.kreis);`
       ).join('\n')
-
-      const query = `[out:json][timeout:120];
+      return `[out:json][timeout:60];
 relation["de:amtlicher_gemeindeschluessel"~"^${ags5}"]["admin_level"="6"];
 map_to_area->.kreis;
 (
 ${filterStatements}
 );
 out center tags;`
+    }
 
-      const elements = await queryOverpass(query)
-      console.log(`  → ${elements.length} OSM-Elemente`)
-
+    function processElements(elements: OverpassElement[], mappings: OsmTagMapping[]) {
       for (const el of elements) {
         const coords = extractCoords(el)
         if (!coords) continue
 
-        // Duplikate vermeiden
         const osmKey = `${el.type}-${el.id}`
         if (seenOsmIds.has(osmKey)) continue
         seenOsmIds.add(osmKey)
 
-        // Kategorie bestimmen
         let matched: OsmTagMapping | undefined
-        for (const mapping of batchMappings) {
+        for (const mapping of mappings) {
           if (matchesFilter(el, mapping.overpassFilter)) { matched = mapping; break }
         }
-        if (!matched) matched = batchMappings[0]
-
-        const name = extractName(el, matched.labelDe)
-        const address = extractAddress(el.tags)
-        const municipalityId = findNearestMunicipality(coords.lat, coords.lon, muns)
+        if (!matched) matched = mappings[0]
 
         allSites.push({
           district_id: districtId,
-          municipality_id: municipalityId,
-          name,
+          municipality_id: findNearestMunicipality(coords.lat, coords.lon, muns),
+          name: extractName(el, matched.labelDe),
           category: matched.category,
           sector: matched.sector,
           latitude: coords.lat,
           longitude: coords.lon,
-          address,
+          address: extractAddress(el.tags),
           risk_exposure: 'mittel',
           metadata: {
             osm_type: el.type,
@@ -284,10 +270,30 @@ out center tags;`
           },
         })
       }
+    }
 
-      // Pause zwischen Batches
-      if (batchIdx < BATCH_SECTORS.length - 1) {
-        await new Promise((r) => setTimeout(r, 2000))
+    // Strategie: 1 Query mit allen Filtern (schnellster Weg)
+    console.log(`Single-Query: alle ${OSM_KRITIS_MAPPINGS.length} Filter in einer Anfrage`)
+    const singleQuery = buildQuery(OSM_KRITIS_MAPPINGS)
+    const singleResult = await queryOverpass(singleQuery, 2)
+
+    if (singleResult.length > 0) {
+      console.log(`  → ${singleResult.length} OSM-Elemente (Single-Query Erfolg)`)
+      processElements(singleResult, OSM_KRITIS_MAPPINGS)
+    } else {
+      // Fallback: 2 parallele Batches statt 5 sequentielle
+      console.log('Single-Query fehlgeschlagen → Fallback: 2 parallele Batches')
+      const batchResults = await Promise.all(
+        FALLBACK_BATCHES.map(async (sectors, idx) => {
+          const mappings = OSM_KRITIS_MAPPINGS.filter((m) => sectors.includes(m.sector))
+          console.log(`Batch ${idx + 1}/2: ${sectors.join(', ')} (${mappings.length} Filter)`)
+          const elements = await queryOverpass(buildQuery(mappings))
+          console.log(`  → ${elements.length} OSM-Elemente`)
+          return { elements, mappings }
+        })
+      )
+      for (const { elements, mappings } of batchResults) {
+        processElements(elements, mappings)
       }
     }
 

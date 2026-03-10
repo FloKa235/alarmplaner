@@ -22,7 +22,17 @@ async function getRedirectPath(userId: string, email: string): Promise<string> {
 
   if (ownedDistrict) return '/pro'
 
-  // 2. Hat der User eine aktive Membership?
+  // 2. Hat der User eine Organisation (Enterprise)?
+  const { data: ownedOrg } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+
+  if (ownedOrg) return '/unternehmen'
+
+  // 3. Hat der User eine aktive Membership?
   const { data: activeMember } = await supabase
     .from('district_members')
     .select('role')
@@ -35,7 +45,7 @@ async function getRedirectPath(userId: string, email: string): Promise<string> {
     return activeMember.role === 'buergermeister' ? '/gemeinde' : '/pro'
   }
 
-  // 3. Hat der User eine offene Einladung (per E-Mail)?
+  // 4. Hat der User eine offene Einladung (per E-Mail)?
   const { data: invite } = await supabase
     .from('district_members')
     .select('id')
@@ -46,7 +56,7 @@ async function getRedirectPath(userId: string, email: string): Promise<string> {
 
   if (invite) return '/invite-accept'
 
-  // 4. Fallback: Bürger-App
+  // 5. Fallback: Bürger-App
   return '/app'
 }
 

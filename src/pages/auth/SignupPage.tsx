@@ -21,6 +21,16 @@ async function getRedirectPath(userId: string, email: string, signupType: 'priva
 
   if (ownedDistrict) return '/pro'
 
+  // Prüfe ob User eine Organisation hat (Enterprise)
+  const { data: ownedOrg } = await supabase
+    .from('organizations')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+
+  if (ownedOrg) return '/unternehmen'
+
   // Prüfe aktive Memberships
   const { data: activeMember } = await supabase
     .from('district_members')
