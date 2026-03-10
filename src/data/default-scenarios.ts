@@ -36,6 +36,8 @@ export interface DefaultScenarioTemplate {
   type: string
   severity: number
   description: string
+  /** 'pro' = Landkreis/Gemeinde, 'enterprise' = Unternehmen/BCM, 'both' = beide */
+  tier: 'pro' | 'enterprise' | 'both'
   phases: DefaultScenarioPhase[]
   inventar?: DefaultScenarioInventarItem[]
   alarmkette?: DefaultAlarmkettenSchritt[]
@@ -51,6 +53,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Starkregen / Sturzflut',
     type: 'Starkregen',
     severity: 65,
+    tier: 'pro',
     description:
       'Extremes Niederschlagsereignis mit über 40 l/m² in kurzer Zeit. Überflutung von Straßen, Unterführungen und Kellern. Überlastung der Kanalisation, Hangrutschungen möglich. Besonders gefährdet: Siedlungen in Senken und an Gewässern.',
     phases: [
@@ -117,6 +120,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Schwerer Sturm / Orkan',
     type: 'Sturm',
     severity: 65,
+    tier: 'pro',
     description:
       'Schwerer Sturm mit Windgeschwindigkeiten über 100 km/h. Umgestürzte Bäume, beschädigte Dächer, Straßensperrungen und mögliche Stromausfälle. Hohe Gefahr für Menschenleben im Freien.',
     phases: [
@@ -181,6 +185,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Extreme Hitzewelle',
     type: 'Hitzewelle',
     severity: 55,
+    tier: 'pro',
     description:
       'Langanhaltende Hitzeperiode mit Temperaturen über 38°C an mehreren aufeinanderfolgenden Tagen. Besondere Gefährdung vulnerabler Gruppen (Ältere, Kleinkinder, chronisch Kranke). Belastung von Gesundheitssystem, Wasserversorgung und Infrastruktur.',
     phases: [
@@ -239,6 +244,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Extreme Kältewelle',
     type: 'Kältewelle',
     severity: 55,
+    tier: 'pro',
     description:
       'Anhaltende extreme Kälteperiode mit Temperaturen unter –15°C über mehrere Tage. Gefahr von Erfrierungen, eingefrorenen Wasserleitungen, Heizungsausfällen und Glatteis. Besondere Gefährdung obdachloser Menschen und älterer Alleinstehender.',
     phases: [
@@ -299,6 +305,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Großflächiger Waldbrand',
     type: 'Waldbrand',
     severity: 70,
+    tier: 'pro',
     description:
       'Ausgedehnter Waldbrand durch Trockenheit und Wind. Bedrohung von Siedlungen am Waldrand, starke Rauchentwicklung, mögliche Evakuierungen. Erfordert massive Einsatzkräfte und Luftunterstützung.',
     phases: [
@@ -368,6 +375,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Amoklauf / Bedrohungslage',
     type: 'Amoklauf',
     severity: 85,
+    tier: 'pro',
     description:
       'Amoklauf oder bewaffnete Bedrohungslage an einer Schule, öffentlichen Einrichtung oder im öffentlichen Raum. Erfordert sofortige polizeiliche Intervention und parallele Rettungsdienstkoordination. Massenanfall von Verletzten möglich.',
     phases: [
@@ -430,6 +438,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'CBRN-Lage (Gefahrstofffreisetzung)',
     type: 'CBRN',
     severity: 80,
+    tier: 'pro',
     description:
       'Freisetzung chemischer (C), biologischer (B), radiologischer (R) oder nuklearer (N) Gefahrstoffe durch Industrieunfall, Transportereignis oder vorsätzliche Handlung. Kontamination von Luft, Wasser und Boden möglich. Erfordert spezialisierte ABC-Einsatzkräfte.',
     phases: [
@@ -492,6 +501,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Cyberangriff auf kommunale IT-Infrastruktur',
     type: 'Cyberangriff',
     severity: 70,
+    tier: 'pro',
     description:
       'Ransomware-Angriff oder gezielte Cyber-Attacke auf die IT-Systeme der Kreisverwaltung und/oder kommunaler Betriebe. Ausfall von E-Government-Diensten, Kommunikationssystemen und möglicherweise KRITIS-Steuerungssystemen.',
     phases: [
@@ -555,6 +565,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Spannungs- / Verteidigungsfall',
     type: 'Krieg',
     severity: 90,
+    tier: 'pro',
     description:
       'Eskalation eines bewaffneten Konflikts mit direkten oder indirekten Auswirkungen auf den Landkreis. Mögliche Szenarien: Raketenangriffe, Flüchtlingsströme, Versorgungsengpässe, Mobilmachung. Erfordert Umsetzung der Zivilschutzplanung gemäß ZSKG.',
     phases: [
@@ -620,6 +631,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Pandemie / Massenerkrankung',
     type: 'Pandemie',
     severity: 70,
+    tier: 'pro',
     description:
       'Ausbreitung einer hochansteckenden Infektionskrankheit mit erheblichen Auswirkungen auf die Gesundheitsversorgung, öffentliches Leben und Wirtschaft. Erfordert langfristige Koordination zwischen Gesundheitsamt, Krankenhäusern und Landesbehörden.',
     phases: [
@@ -683,6 +695,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Sabotage kritischer Infrastruktur',
     type: 'Sabotage',
     severity: 80,
+    tier: 'pro',
     description:
       'Gezielte physische Sabotage an kritischer Infrastruktur (Stromversorgung, Wasserversorgung, Telekommunikation, Verkehrswege). Erfordert enge Zusammenarbeit mit Polizei und Verfassungsschutz.',
     phases: [
@@ -745,6 +758,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Großflächiger Stromausfall (Blackout)',
     type: 'Stromausfall',
     severity: 75,
+    tier: 'pro',
     description:
       'Langanhaltender, großflächiger Stromausfall über mehrere Stunden bis Tage. Betrifft alle KRITIS-Sektoren, insbesondere Gesundheitsversorgung, Wasserversorgung und Kommunikation. Erfordert sofortige Aktivierung des Krisenstabes und Koordination mit Netzbetreibern.',
     phases: [
@@ -821,6 +835,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Terroranschlag',
     type: 'Terroranschlag',
     severity: 85,
+    tier: 'pro',
     description:
       'Terroristischer Anschlag im Landkreis. Kann verschiedene Angriffsformen umfassen: Fahrzeug, Waffen, Sprengstoff, CBRN-Stoffe. Erfordert sofortige polizeiliche Maßnahmen und parallele Rettungsdienstkoordination.',
     phases: [
@@ -888,6 +903,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Ransomware-Angriff',
     type: 'Ransomware',
     severity: 80,
+    tier: 'enterprise',
     description: 'Verschluesselung kritischer IT-Systeme durch Schadsoftware. Erpressung, Datenverlust, Betriebsunterbrechung. Meldepflicht nach NIS2 §32 (24h Erstmeldung).',
     phases: [
       { name: 'Erkennung & Eindaemmung', duration: '0–4 Stunden', tasks: ['Betroffene Systeme identifizieren', 'Netzwerksegmente isolieren', 'CERT/BSI informieren (24h-Meldepflicht)', 'Forensische Sicherung starten'] },
@@ -902,6 +918,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Kritischer Lieferkettenausfall',
     type: 'Lieferkettenausfall',
     severity: 65,
+    tier: 'enterprise',
     description: 'Ausfall eines kritischen Zulieferers oder Dienstleisters. Betriebsunterbrechung durch fehlende Vorprodukte, IT-Services oder Energieversorgung.',
     phases: [
       { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Betroffene Lieferketten identifizieren', 'Auswirkungen auf eigene Produktion bewerten', 'Krisenstab einberufen', 'Alternative Lieferanten kontaktieren'] },
@@ -916,6 +933,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Rechenzentrumsausfall',
     type: 'Rechenzentrumsausfall',
     severity: 75,
+    tier: 'enterprise',
     description: 'Totalausfall des primaeren Rechenzentrums durch technisches Versagen, Feuer, Wasser oder Sabotage. Alle gehosteten Dienste betroffen.',
     phases: [
       { name: 'Sofortreaktion', duration: '0–1 Stunde', tasks: ['Ausmass des Ausfalls feststellen', 'DR-Plan aktivieren', 'Failover auf Backup-Standort einleiten', 'Stakeholder informieren'] },
@@ -930,6 +948,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Datenschutzvorfall / Datenleck',
     type: 'Datenschutzvorfall',
     severity: 70,
+    tier: 'enterprise',
     description: 'Unbefugter Zugriff auf personenbezogene Daten oder Geschaeftsgeheimnisse. Meldepflicht an Aufsichtsbehoerde binnen 72 Stunden (Art. 33 DSGVO).',
     phases: [
       { name: 'Erkennung & Meldung', duration: '0–24 Stunden', tasks: ['Art und Umfang des Datenlecks feststellen', 'Datenschutzbeauftragten informieren', 'Betroffene Systeme sichern', 'Forensische Sicherung einleiten'] },
@@ -944,6 +963,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Massiver Personalausfall',
     type: 'Personalausfall',
     severity: 55,
+    tier: 'enterprise',
     description: 'Gleichzeitiger Ausfall eines grossen Teils der Belegschaft durch Pandemie, Streik oder andere Ursachen. Kritische Funktionen koennen nicht besetzt werden.',
     phases: [
       { name: 'Sofortreaktion', duration: '0–24 Stunden', tasks: ['Verfuegbare Mitarbeiter erfassen', 'Kritische Funktionen identifizieren', 'Notbesetzungsplan aktivieren', 'Remote-Arbeit ermoeglichen'] },
@@ -958,6 +978,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Betriebsstoerung / Produktionsausfall',
     type: 'Betriebsstoerung',
     severity: 60,
+    tier: 'enterprise',
     description: 'Unerwarteter Stillstand der Produktion oder wesentlicher Geschaeftsprozesse durch technisches Versagen, Unfall oder externe Stoerung.',
     phases: [
       { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Ursache der Stoerung ermitteln', 'Sicherheit fuer Mitarbeiter gewaehrleisten', 'Krisenstab informieren', 'Kunden und Partner benachrichtigen'] },
@@ -972,6 +993,7 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     title: 'Reputationskrise',
     type: 'Reputationskrise',
     severity: 50,
+    tier: 'enterprise',
     description: 'Schwere Schaedigung des Unternehmensrufs durch Medienbericht, Social-Media-Shitstorm, Produktrueckruf oder Fehlverhalten. Vertrauensverlust bei Kunden und Partnern.',
     phases: [
       { name: 'Sofortreaktion', duration: '0–4 Stunden', tasks: ['Medienberichterstattung erfassen und bewerten', 'Krisenkommunikationsteam aktivieren', 'Fakten sammeln und verifizieren', 'Erste Stellungnahme vorbereiten'] },
@@ -981,3 +1003,9 @@ export const DEFAULT_SCENARIOS: DefaultScenarioTemplate[] = [
     ],
   },
 ]
+
+/** Nur Pro-Szenarien (Landkreis/Gemeinde) */
+export const PRO_SCENARIOS = DEFAULT_SCENARIOS.filter(s => s.tier === 'pro' || s.tier === 'both')
+
+/** Nur Enterprise-Szenarien (Unternehmen/BCM) */
+export const ENTERPRISE_SCENARIOS = DEFAULT_SCENARIOS.filter(s => s.tier === 'enterprise' || s.tier === 'both')

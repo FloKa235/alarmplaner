@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { germanDistricts, type GermanDistrict } from '@/data/german-districts'
-import { DEFAULT_SCENARIOS } from '@/data/default-scenarios'
+import { PRO_SCENARIOS } from '@/data/default-scenarios'
 import { PREPARATION_CHECKLISTS } from '@/data/preparation-checklists'
 import { createEmptyHandbuchKapitel } from '@/utils/handbook-init'
 
@@ -220,13 +220,13 @@ export default function OnboardingPage() {
         if (cancelledRef.current) return
         setProgress((p) => ({ ...p, risiken: { count: p.risiken.count || 8, done: true } }))
 
-        // Real: 13 Standard-Szenarien anlegen
+        // Standard-Szenarien anlegen (nur Pro-Tier)
         setProgress((p) => ({ ...p, szenarien: { count: 0, done: false } }))
         let szenarien_count = 0
         const createdScenarioIds: string[] = []
 
         try {
-          for (const template of DEFAULT_SCENARIOS) {
+          for (const template of PRO_SCENARIOS) {
             if (cancelledRef.current) return
 
             const { data: scenario, error: scenError } = await supabase
@@ -303,7 +303,7 @@ export default function OnboardingPage() {
         }
 
         if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, szenarien: { count: szenarien_count || 13, done: true } }))
+        setProgress((p) => ({ ...p, szenarien: { count: szenarien_count, done: true } }))
 
         // Konsolidierte Inventar-Items automatisch anlegen
         setProgress((p) => ({ ...p, inventar: { count: 0, done: false } }))
@@ -312,7 +312,7 @@ export default function OnboardingPage() {
           // pro_10k_einwohner → target_quantity (absolut, skaliert auf Einwohnerzahl)
           const populationFactor = selectedDistrict!.population / 10000
           const categoryMap = new Map<string, { kategorie: string; target: number; unit: string }>()
-          for (const template of DEFAULT_SCENARIOS) {
+          for (const template of PRO_SCENARIOS) {
             if (!template.inventar) continue
             for (const item of template.inventar) {
               const key = item.kategorie.toLowerCase().trim()
@@ -631,7 +631,7 @@ export default function OnboardingPage() {
                 <LoadingItem
                   icon={<Flame className="h-5 w-5" />}
                   label="Standard-Szenarien anlegen"
-                  sublabel="13 Krisenszenarien mit Handlungsplänen"
+                  sublabel="Krisenszenarien mit Handlungsplänen"
                   count={progress.szenarien.count}
                   done={progress.szenarien.done}
                   unit="Szenarien"
