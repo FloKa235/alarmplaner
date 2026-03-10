@@ -18,6 +18,8 @@ import {
 import { supabase } from '@/lib/supabase'
 import { germanDistricts, type GermanDistrict } from '@/data/german-districts'
 import { DEFAULT_SCENARIOS } from '@/data/default-scenarios'
+import { PREPARATION_CHECKLISTS } from '@/data/preparation-checklists'
+import { createEmptyHandbuchKapitel } from '@/utils/handbook-init'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -25,8 +27,8 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 type Step = 1 | 2 | 3
 
 interface LoadProgress {
-  gemeinden: { count: number; done: boolean }
-  kritis: { count: number; done: boolean }
+  gemeinden: { count: number; done: boolean; error?: string }
+  kritis: { count: number; done: boolean; error?: string }
   risiken: { count: number; done: boolean }
   szenarien: { count: number; done: boolean }
   inventar: { count: number; done: boolean }
@@ -123,14 +125,16 @@ export default function OnboardingPage() {
               gemeindenCount = munResult.imported + munResult.existing
             } else {
               console.warn('Gemeinden-Import Warnung:', munResult.error)
+              setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: munResult.error || 'Import fehlgeschlagen' } }))
             }
           } catch (munErr) {
             console.warn('Gemeinden-Import Fehler (nicht kritisch):', munErr)
+            setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: 'Netzwerkfehler beim Import' } }))
           }
         }
 
         if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, gemeinden: { count: gemeindenCount || 10, done: true } }))
+        setProgress((p) => ({ ...p, gemeinden: { count: gemeindenCount, done: true } }))
 
         // Real KRITIS-Import via OSM Edge Function
         setProgress((p) => ({ ...p, kritis: { count: 5, done: false } }))
@@ -156,14 +160,16 @@ export default function OnboardingPage() {
             } else {
               console.warn('KRITIS-Import Warnung:', osmResult.error)
               kritisCount = 0
+              setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: osmResult.error || 'Import fehlgeschlagen' } }))
             }
           } catch (osmErr) {
             console.warn('KRITIS-Import Fehler (nicht kritisch):', osmErr)
+            setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: 'Netzwerkfehler beim Import' } }))
           }
         }
 
         if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, kritis: { count: kritisCount || 10, done: true } }))
+        setProgress((p) => ({ ...p, kritis: { count: kritisCount, done: true } }))
 
         // Real: Warnungen abrufen + KI-Risikoanalyse starten
         setProgress((p) => ({ ...p, risiken: { count: 0, done: false } }))
@@ -343,68 +349,52 @@ export default function OnboardingPage() {
 
         if (cancelledRef.current) return
 
-        // KI-Krisenhandbücher für alle Szenarien generieren (Batches von 3)
-        // + Severity-Score aus KI-Risikobewertung ableiten
-        if (accessToken && createdScenarioIds.length > 0) {
-          setProgress((p) => ({ ...p, handbuecher: { count: 0, total: createdScenarioIds.length, done: false } }))
-          let handbuchCount = 0
-          const BATCH_SIZE = 3
-
-          // Severity aus KI-Risikobewertung berechnen
-          const wahrscheinlichkeitScore: Record<string, number> = { niedrig: 1, mittel: 2, hoch: 3, sehr_hoch: 4 }
-          const schadensausmassScore: Record<string, number> = { gering: 1, mittel: 2, erheblich: 3, katastrophal: 4 }
-
-          for (let i = 0; i < createdScenarioIds.length; i += BATCH_SIZE) {
-            if (cancelledRef.current) return
-
-            const batch = createdScenarioIds.slice(i, i + BATCH_SIZE)
-            const batchPromises = batch.map(async (scenarioId) => {
-              try {
-                const response = await fetch(`${SUPABASE_URL}/functions/v1/ai-enrich-scenario`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${accessToken}`,
-                    apikey: SUPABASE_ANON_KEY,
-                  },
-                  body: JSON.stringify({ scenarioId }),
-                })
-                const result = await response.json()
-                if (result.success) {
-                  handbuchCount++
-                  if (!cancelledRef.current) {
-                    setProgress((p) => ({ ...p, handbuecher: { count: handbuchCount, total: createdScenarioIds.length, done: false } }))
-                  }
-
-                  // Severity aus KI-Risikobewertung ableiten und DB updaten
-                  try {
-                    const risiko = result.scenario?.handbook?.risikobewertung
-                    if (risiko?.eintrittswahrscheinlichkeit && risiko?.schadensausmass) {
-                      const w = wahrscheinlichkeitScore[risiko.eintrittswahrscheinlichkeit] ?? 2
-                      const s = schadensausmassScore[risiko.schadensausmass] ?? 2
-                      // Severity: (w + s) / 8 * 100 → Bereich 25-100
-                      const kiSeverity = Math.round(((w + s) / 8) * 100)
-                      await supabase
-                        .from('scenarios')
-                        .update({ severity: kiSeverity })
-                        .eq('id', scenarioId)
-                    }
-                  } catch (sevErr) {
-                    console.warn('Severity-Update Fehler (nicht kritisch):', sevErr)
-                  }
-                } else {
-                  console.warn('Handbuch-Generierung Warnung:', result.error)
-                }
-              } catch (err) {
-                console.warn('Handbuch-Generierung Fehler (nicht kritisch):', err)
-              }
-            })
-
-            await Promise.all(batchPromises)
-          }
-
+        // Krisenhandbuch (district_handbooks) automatisch anlegen
+        setProgress((p) => ({ ...p, handbuecher: { count: 0, total: 2, done: false } }))
+        try {
+          const { error: hbError } = await supabase.from('district_handbooks').insert({
+            district_id: districtId,
+            titel: 'Krisenhandbuch',
+            status: 'entwurf',
+            version: '1.0',
+            kapitel: createEmptyHandbuchKapitel(),
+          })
+          if (hbError) console.warn('Handbuch-Erstellung Warnung:', hbError.message)
           if (!cancelledRef.current) {
-            setProgress((p) => ({ ...p, handbuecher: { count: handbuchCount, total: createdScenarioIds.length, done: true } }))
+            setProgress((p) => ({ ...p, handbuecher: { count: 1, total: 2, done: false } }))
+          }
+        } catch (hbErr) {
+          console.warn('Handbuch-Erstellung Fehler (nicht kritisch):', hbErr)
+        }
+
+        if (cancelledRef.current) return
+
+        // ExTrass-Checklisten (18 Kategorien) automatisch anlegen
+        try {
+          const checklistRows = PREPARATION_CHECKLISTS.map(cat => ({
+            district_id: districtId,
+            scenario_id: null,
+            title: `${cat.nummer}. ${cat.title}`,
+            description: cat.beschreibung,
+            category: 'vorbereitung' as const,
+            is_template: false,
+            items: cat.items.map(item => ({
+              id: item.id,
+              text: item.text,
+              status: 'open' as const,
+              completed_at: null,
+              completed_by: null,
+            })),
+          }))
+          const { error: clError } = await supabase.from('checklists').insert(checklistRows)
+          if (clError) console.warn('Checklisten-Erstellung Warnung:', clError.message)
+          if (!cancelledRef.current) {
+            setProgress((p) => ({ ...p, handbuecher: { count: 2, total: 2, done: true } }))
+          }
+        } catch (clErr) {
+          console.warn('Checklisten-Erstellung Fehler (nicht kritisch):', clErr)
+          if (!cancelledRef.current) {
+            setProgress((p) => ({ ...p, handbuecher: { count: 1, total: 2, done: true } }))
           }
         }
 
@@ -413,7 +403,7 @@ export default function OnboardingPage() {
         // Navigate to step 3
         timers.push(setTimeout(() => {
           if (!cancelledRef.current) setStep(3)
-        }, 1000))
+        }, 500))
       } catch (err: unknown) {
         console.error('Onboarding Error:', err)
         if (!cancelledRef.current) {
@@ -608,7 +598,7 @@ export default function OnboardingPage() {
               </div>
               <h1 className="mb-2 text-2xl font-bold text-text-primary">KI analysiert {selectedDistrict?.name}</h1>
               <p className="mb-8 text-text-secondary">
-                Daten werden automatisch geladen und KI-Krisenhandbücher generiert. Das kann einige Minuten dauern.
+                Daten werden automatisch aus OpenStreetMap, DWD und weiteren Quellen geladen.
               </p>
 
               <div className="space-y-4">
@@ -619,6 +609,7 @@ export default function OnboardingPage() {
                   count={progress.gemeinden.count}
                   done={progress.gemeinden.done}
                   unit="Gemeinden"
+                  error={progress.gemeinden.error}
                 />
                 <LoadingItem
                   icon={<Landmark className="h-5 w-5" />}
@@ -627,6 +618,7 @@ export default function OnboardingPage() {
                   count={progress.kritis.count}
                   done={progress.kritis.done}
                   unit="Objekte"
+                  error={progress.kritis.error}
                 />
                 <LoadingItem
                   icon={<ShieldAlert className="h-5 w-5" />}
@@ -654,11 +646,11 @@ export default function OnboardingPage() {
                 />
                 <LoadingItem
                   icon={<BookOpen className="h-5 w-5" />}
-                  label="KI-Krisenhandbücher generieren"
-                  sublabel={progress.handbuecher.total > 0 ? `${progress.handbuecher.count} von ${progress.handbuecher.total} Handbüchern` : 'Vollständige Krisenhandbücher per KI'}
+                  label="Handbuch & Checklisten anlegen"
+                  sublabel="Krisenhandbuch (12 Kapitel) + ExTrass-Checklisten (18 Kategorien)"
                   count={progress.handbuecher.count}
                   done={progress.handbuecher.done}
-                  unit="Handbücher"
+                  unit="Dokumente"
                 />
               </div>
             </div>
@@ -682,7 +674,7 @@ export default function OnboardingPage() {
                 <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risikokategorien" />
                 <SummaryCard icon={<Flame className="h-5 w-5" />} value={progress.szenarien.count} label="Szenarien" />
                 <SummaryCard icon={<Package className="h-5 w-5" />} value={progress.inventar.count} label="Inventar" />
-                <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="KI-Handbücher" />
+                <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="Dokumente" />
               </div>
 
               <button
@@ -707,6 +699,7 @@ function LoadingItem({
   count,
   done,
   unit,
+  error,
 }: {
   icon: React.ReactNode
   label: string
@@ -714,12 +707,14 @@ function LoadingItem({
   count: number
   done: boolean
   unit: string
+  error?: string
 }) {
+  const hasError = done && count === 0 && error
   return (
-    <div className={`rounded-2xl border p-5 transition-colors ${done ? 'border-green-200 bg-green-50/50' : 'border-border bg-white'}`}>
+    <div className={`rounded-2xl border p-5 transition-colors ${hasError ? 'border-amber-200 bg-amber-50/50' : done ? 'border-green-200 bg-green-50/50' : 'border-border bg-white'}`}>
       <div className="flex items-center gap-4">
-        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${done ? 'bg-green-100 text-green-600' : 'bg-primary-50 text-primary-600'}`}>
-          {done ? <CheckCircle2 className="h-5 w-5" /> : icon}
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${hasError ? 'bg-amber-100 text-amber-600' : done ? 'bg-green-100 text-green-600' : 'bg-primary-50 text-primary-600'}`}>
+          {hasError ? <AlertTriangle className="h-5 w-5" /> : done ? <CheckCircle2 className="h-5 w-5" /> : icon}
         </div>
         <div className="flex-1">
           <div className="flex items-center justify-between">
@@ -731,6 +726,9 @@ function LoadingItem({
             )}
           </div>
           <p className="text-xs text-text-muted">{sublabel}</p>
+          {hasError && (
+            <p className="mt-1 text-xs text-amber-600">Import fehlgeschlagen — kann später manuell nachgeholt werden</p>
+          )}
           {!done && count > 0 && (
             <div className="mt-2 flex items-center gap-2">
               <Loader2 className="h-3 w-3 animate-spin text-primary-600" />
