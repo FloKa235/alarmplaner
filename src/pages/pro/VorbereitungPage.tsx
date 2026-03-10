@@ -7,24 +7,24 @@ import { useMemo } from 'react'
 import {
   ShieldCheck, CheckCircle2, AlertCircle, XCircle, MinusCircle,
 } from 'lucide-react'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope } from '@/hooks/useScope'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import type { DbChecklist } from '@/types/database'
 import ExTrassChecklistView from '@/components/checklists/ExTrassChecklistView'
 
 export default function VorbereitungPage() {
-  const { districtId } = useDistrict()
+  const { scopeId, scopeColumn } = useScope()
 
   const { data: checklists, loading, refetch } = useSupabaseQuery<DbChecklist>(
     (sb) =>
       sb
         .from('checklists')
         .select('*')
-        .eq('district_id', districtId!)
+        .eq(scopeColumn, scopeId!)
         .eq('category', 'vorbereitung')
         .is('scenario_id', null)
         .order('title'),
-    [districtId],
+    [scopeId, scopeColumn],
   )
 
   // ─── Stats berechnen ───────────────────────────────
@@ -149,7 +149,8 @@ export default function VorbereitungPage() {
       {/* ExTrass Checklisten-Accordion (18 Kategorien) */}
       <ExTrassChecklistView
         checklists={checklists || []}
-        districtId={districtId!}
+        scopeId={scopeId!}
+        scopeColumn={scopeColumn}
         loading={loading}
         onRefetch={refetch}
         hideStats

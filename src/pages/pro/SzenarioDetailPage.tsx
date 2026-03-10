@@ -14,7 +14,7 @@ import {
   Shield, Zap, Circle, Landmark,
 } from 'lucide-react'
 import { useSupabaseSingle, useSupabaseQuery } from '@/hooks/useSupabaseQuery'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope } from '@/hooks/useScope'
 import { createDefaultEskalationsstufen, ESKALATION_COLORS } from './szenario-detail/helpers/eskalation-defaults'
 import { calculateReadiness } from './szenario-detail/helpers/readiness-checks'
 import {
@@ -85,7 +85,7 @@ function getEskalationColors(stufe: number) {
 
 export default function SzenarioDetailPage() {
   const { id } = useParams()
-  const { district } = useDistrict()
+  const { scopeId, scopeColumn } = useScope()
 
   // ─── Data Fetching (alle Hooks VOR early returns) ───
 
@@ -96,8 +96,8 @@ export default function SzenarioDetailPage() {
 
   // Inventar
   const { data: allDistrictItems } = useSupabaseQuery<DbInventoryItem>(
-    (sb) => sb.from('inventory_items').select('*').eq('district_id', district?.id || ''),
-    [district?.id]
+    (sb) => sb.from('inventory_items').select('*').eq(scopeColumn, scopeId || ''),
+    [scopeId, scopeColumn]
   )
   const allItemIds = useMemo(() => allDistrictItems.map(i => i.id), [allDistrictItems])
   const { data: scenarioLinks } = useSupabaseQuery<DbInventoryScenarioLink>(
@@ -110,8 +110,8 @@ export default function SzenarioDetailPage() {
 
   // Alert-Kontakte (für Readiness)
   const { data: alertContacts } = useSupabaseQuery<DbAlertContact>(
-    (sb) => sb.from('alert_contacts').select('*').eq('district_id', district?.id || '').eq('is_active', true),
-    [district?.id]
+    (sb) => sb.from('alert_contacts').select('*').eq(scopeColumn, scopeId || '').eq('is_active', true),
+    [scopeId, scopeColumn]
   )
 
   // Szenario-Checklisten (für Readiness)
@@ -525,7 +525,7 @@ export default function SzenarioDetailPage() {
       {/* ═══════════════════════════════════════════════════
            SEKTION 4: RESSOURCEN & INVENTAR
          ═══════════════════════════════════════════════════ */}
-      {district && (
+      {scopeId && (
         <div className="rounded-2xl border border-border bg-white p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-bold text-text-primary">

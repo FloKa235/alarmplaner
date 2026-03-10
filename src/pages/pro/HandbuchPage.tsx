@@ -19,7 +19,7 @@ import {
   Settings, Plus,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope } from '@/hooks/useScope'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import type {
   DbDistrictHandbook, HandbuchStatus,
@@ -40,14 +40,14 @@ const STATUS_CONFIG: Record<HandbuchStatus, { label: string; bg: string; text: s
 
 // ─── Component ──────────────────────────────────────
 export default function HandbuchPage() {
-  const { districtId } = useDistrict()
+  const { scopeId, scopeColumn } = useScope()
 
   const { data: handbooks, loading, error: queryError, refetch } = useSupabaseQuery<DbDistrictHandbook>(
     (sb) => {
-      if (!districtId) return sb.from('district_handbooks').select('*').limit(0)
-      return sb.from('district_handbooks').select('*').eq('district_id', districtId).limit(1)
+      if (!scopeId) return sb.from('district_handbooks').select('*').limit(0)
+      return sb.from('district_handbooks').select('*').eq(scopeColumn, scopeId).limit(1)
     },
-    [districtId],
+    [scopeId, scopeColumn],
   )
 
   const handbook = handbooks?.[0] || null
@@ -85,7 +85,7 @@ export default function HandbuchPage() {
 
   // ─── Handbuch erstellen ──────────────────────────────
   const handleCreate = async () => {
-    if (!districtId) {
+    if (!scopeId) {
       console.warn('handleCreate: districtId ist null — kein Landkreis vorhanden')
       alert('Kein Landkreis gefunden. Bitte stellen Sie sicher, dass Sie angemeldet sind und ein Landkreis existiert.')
       return
@@ -93,7 +93,7 @@ export default function HandbuchPage() {
     setCreating(true)
     try {
       const { error } = await supabase.from('district_handbooks').insert({
-        district_id: districtId,
+        [scopeColumn]: scopeId,
         titel: 'Krisenhandbuch',
         status: 'entwurf',
         version: '1.0',
@@ -228,7 +228,7 @@ export default function HandbuchPage() {
             Es basiert auf dem BSI/BBK-Standard mit 12 Kapiteln und kann
             schrittweise ausgefuellt und gepflegt werden.
           </p>
-          {!districtId ? (
+          {!scopeId ? (
             <p className="text-sm text-amber-600 font-medium">
               Kein Landkreis gefunden. Bitte melden Sie sich an und stellen Sie sicher, dass ein Landkreis existiert.
             </p>

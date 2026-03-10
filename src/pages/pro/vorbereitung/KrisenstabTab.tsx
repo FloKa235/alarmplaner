@@ -27,7 +27,8 @@ const ROLLEN: { key: KrisenstabRolle; label: string; beschreibung: string }[] = 
 ]
 
 interface KrisenstabTabProps {
-  districtId: string
+  scopeId: string
+  scopeColumn: 'district_id' | 'organization_id'
 }
 
 // Helper: Anzeigename eines Mitglieds (Kontakt oder manuell)
@@ -56,17 +57,17 @@ function memberEmail(m: DbKrisenstabMember, contacts: DbAlertContact[]): string 
 }
 
 // ─── Component ───────────────────────────────────────
-export default function KrisenstabTab({ districtId }: KrisenstabTabProps) {
+export default function KrisenstabTab({ scopeId, scopeColumn }: KrisenstabTabProps) {
   // ── Data ──
   const { data: members, loading, refetch } = useSupabaseQuery<DbKrisenstabMember>(
     (sb) =>
       sb
         .from('krisenstab_members')
         .select('*')
-        .eq('district_id', districtId)
+        .eq(scopeColumn, scopeId)
         .order('rolle')
         .order('ist_stellvertreter'),
-    [districtId],
+    [scopeId, scopeColumn],
   )
 
   const { data: contacts } = useSupabaseQuery<DbAlertContact>(
@@ -74,10 +75,10 @@ export default function KrisenstabTab({ districtId }: KrisenstabTabProps) {
       sb
         .from('alert_contacts')
         .select('*')
-        .eq('district_id', districtId)
+        .eq(scopeColumn, scopeId)
         .eq('is_active', true)
         .order('name'),
-    [districtId],
+    [scopeId, scopeColumn],
   )
 
   // ── Modal State ──
@@ -139,7 +140,7 @@ export default function KrisenstabTab({ districtId }: KrisenstabTabProps) {
     setSaving(true)
     try {
       const data = {
-        district_id: districtId,
+        [scopeColumn]: scopeId,
         rolle: editMember ? editMember.rolle : createForRolle!.rolle,
         ist_stellvertreter: editMember ? editMember.ist_stellvertreter : createForRolle!.isStv,
         contact_id: formContactId || null,

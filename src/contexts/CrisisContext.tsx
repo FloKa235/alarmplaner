@@ -40,7 +40,7 @@ interface CrisisState {
   ) => Promise<void>
 }
 
-const CrisisContext = createContext<CrisisState | null>(null)
+export const CrisisContext = createContext<CrisisState | null>(null)
 
 // ─── Helper: Elapsed seconds ─────────────────────────
 

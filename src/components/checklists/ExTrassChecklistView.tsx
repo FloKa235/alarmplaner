@@ -20,7 +20,8 @@ type StatusKey = ChecklistItem['status']
 
 interface ExTrassChecklistViewProps {
   checklists: DbChecklist[]
-  districtId: string
+  scopeId: string
+  scopeColumn: 'district_id' | 'organization_id'
   loading?: boolean
   onRefetch: () => void
   hideStats?: boolean
@@ -55,7 +56,8 @@ function sortByNummer(a: DbChecklist, b: DbChecklist): number {
 // ─── Component ──────────────────────────────────────
 export default function ExTrassChecklistView({
   checklists: checklistsProp,
-  districtId,
+  scopeId,
+  scopeColumn,
   loading,
   onRefetch,
   hideStats,
@@ -92,7 +94,7 @@ export default function ExTrassChecklistView({
     setCreating(true)
     try {
       const rows = PREPARATION_CHECKLISTS.map(cat => ({
-        district_id: districtId,
+        [scopeColumn]: scopeId,
         scenario_id: null, // Landkreis-weit, nicht szenario-spezifisch
         title: `${cat.nummer}. ${cat.title}`,
         description: cat.beschreibung,

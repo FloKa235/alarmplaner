@@ -12,7 +12,7 @@ interface DistrictState {
   refetch: () => void
 }
 
-const DistrictContext = createContext<DistrictState | null>(null)
+export const DistrictContext = createContext<DistrictState | null>(null)
 
 /**
  * Provider der den aktuellen Landkreis des eingeloggten Users lädt.

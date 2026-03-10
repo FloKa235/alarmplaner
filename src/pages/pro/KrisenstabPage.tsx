@@ -1,12 +1,12 @@
 import { Loader2 } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import KrisenstabTab from './vorbereitung/KrisenstabTab'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope } from '@/hooks/useScope'
 
 export default function KrisenstabPage() {
-  const { districtId, loading: districtLoading } = useDistrict()
+  const { scopeId, scopeColumn, loading: scopeLoading } = useScope()
 
-  if (districtLoading) {
+  if (scopeLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
@@ -21,8 +21,8 @@ export default function KrisenstabPage() {
         description="Besetzung des Krisenstabs nach S1–S6 Schema mit Hauptverantwortlichen und Stellvertretern"
       />
 
-      {districtId ? (
-        <KrisenstabTab districtId={districtId} />
+      {scopeId ? (
+        <KrisenstabTab scopeId={scopeId} scopeColumn={scopeColumn} />
       ) : (
         <div className="rounded-2xl border border-border bg-white p-12 text-center">
           <p className="text-sm text-text-secondary">

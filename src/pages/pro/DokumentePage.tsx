@@ -8,7 +8,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import Modal, { FormField, ModalFooter, selectClass } from '@/components/ui/Modal'
 import { ConfirmDialog } from '@/components/ui/Modal'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope } from '@/hooks/useScope'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { supabase } from '@/lib/supabase'
 import type { DbDocument } from '@/types/database'
@@ -54,7 +54,7 @@ function getFolderLabel(name: string): string {
 
 // ─── Component ───────────────────────────────────────
 export default function DokumentePage() {
-  const { districtId, loading: districtLoading } = useDistrict()
+  const { scopeId, scopeColumn, loading: scopeLoading } = useScope()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── State ──
@@ -79,9 +79,9 @@ export default function DokumentePage() {
       sb
         .from('documents')
         .select('*')
-        .eq('district_id', districtId!)
+        .eq(scopeColumn, scopeId!)
         .order('created_at', { ascending: false }),
-    [districtId]
+    [scopeId, scopeColumn]
   )
 
   // ── Folder Computation ──
@@ -146,14 +146,14 @@ export default function DokumentePage() {
   }
 
   const handleUpload = async () => {
-    if (!selectedFiles || !districtId) return
+    if (!selectedFiles || !scopeId) return
     setUploading(true)
 
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i]
         const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin'
-        const storagePath = `${districtId}/${crypto.randomUUID()}_${file.name}`
+        const storagePath = `${scopeId}/${crypto.randomUUID()}_${file.name}`
 
         const { error: uploadError } = await supabase.storage
           .from('documents')
@@ -171,7 +171,7 @@ export default function DokumentePage() {
         const { error: insertError } = await supabase
           .from('documents')
           .insert({
-            district_id: districtId,
+            [scopeColumn]: scopeId,
             name: file.name,
             file_type: fileExt,
             size_bytes: file.size,
@@ -315,7 +315,7 @@ export default function DokumentePage() {
   }
 
   // ── Loading ──
-  if (districtLoading || loading) {
+  if (scopeLoading || loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-primary-600" />

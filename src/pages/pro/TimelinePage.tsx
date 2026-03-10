@@ -13,8 +13,7 @@ import {
   Filter,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useCrisis } from '@/contexts/CrisisContext'
-import { useDistrict } from '@/hooks/useDistrict'
+import { useScope, useScopeCrisis } from '@/hooks/useScope'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import type { DbCrisisEvent, CrisisEventType } from '@/types/database'
 
@@ -41,8 +40,8 @@ const filterChips: { label: string; types: CrisisEventType[] | null }[] = [
 ]
 
 export default function TimelinePage() {
-  const { isActive, insertEvent } = useCrisis()
-  const { districtId } = useDistrict()
+  const { isActive, insertEvent } = useScopeCrisis()
+  const { scopeId, scopeColumn, scopeType } = useScope()
   const [activeFilter, setActiveFilter] = useState<CrisisEventType[] | null>(null)
   const [showNewEntry, setShowNewEntry] = useState(false)
   const [newBeschreibung, setNewBeschreibung] = useState('')
@@ -50,7 +49,7 @@ export default function TimelinePage() {
 
   // Redirect wenn keine Krise aktiv
   if (!isActive) {
-    return <Navigate to="/pro" replace />
+    return <Navigate to={scopeType === 'organization' ? '/unternehmen' : '/pro'} replace />
   }
 
   // Events laden
@@ -59,10 +58,10 @@ export default function TimelinePage() {
       sb
         .from('crisis_events')
         .select('*')
-        .eq('district_id', districtId!)
+        .eq(scopeColumn, scopeId!)
         .order('created_at', { ascending: false })
         .limit(100),
-    [districtId]
+    [scopeId, scopeColumn]
   )
 
   // Gefilterte Events

@@ -37,7 +37,7 @@ interface EnterpriseCrisisState {
   ) => Promise<void>
 }
 
-const EnterpriseCrisisContext = createContext<EnterpriseCrisisState | null>(null)
+export const EnterpriseCrisisContext = createContext<EnterpriseCrisisState | null>(null)
 
 function calcElapsed(startedAt: string | null): number {
   if (!startedAt) return 0

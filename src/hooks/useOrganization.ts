@@ -12,7 +12,7 @@ interface OrganizationState {
   refetch: () => void
 }
 
-const OrganizationContext = createContext<OrganizationState | null>(null)
+export const OrganizationContext = createContext<OrganizationState | null>(null)
 
 /**
  * Provider der die aktuelle Organisation des eingeloggten Users laedt.

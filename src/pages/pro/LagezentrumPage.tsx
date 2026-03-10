@@ -16,8 +16,8 @@ import {
   ListChecks,
   Activity,
 } from 'lucide-react'
-import { useCrisis, formatElapsed, stufeLabelMap, stufeColorMap } from '@/contexts/CrisisContext'
-import { useDistrict } from '@/hooks/useDistrict'
+import { formatElapsed, stufeLabelMap, stufeColorMap } from '@/contexts/CrisisContext'
+import { useScope, useScopeCrisis } from '@/hooks/useScope'
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
 import { useWarnings } from '@/hooks/useWarnings'
 import StatCard from '@/components/ui/StatCard'
@@ -39,13 +39,13 @@ const eventEmoji: Record<string, string> = {
 }
 
 export default function LagezentrumPage() {
-  const { isActive, scenarioId, scenarioTitle, stufe, elapsedSeconds } = useCrisis()
-  const { districtId } = useDistrict()
-  const { warnings } = useWarnings(districtId)
+  const { isActive, scenarioId, scenarioTitle, stufe, elapsedSeconds } = useScopeCrisis()
+  const { scopeId, scopeColumn, scopeType } = useScope()
+  const { warnings } = useWarnings(scopeId)
 
   // Redirect wenn keine Krise aktiv
   if (!isActive) {
-    return <Navigate to="/pro" replace />
+    return <Navigate to={scopeType === 'organization' ? '/unternehmen' : '/pro'} replace />
   }
 
   // Letzte Events laden
@@ -54,10 +54,10 @@ export default function LagezentrumPage() {
       sb
         .from('crisis_events')
         .select('*')
-        .eq('district_id', districtId!)
+        .eq(scopeColumn, scopeId!)
         .order('created_at', { ascending: false })
         .limit(10),
-    [districtId]
+    [scopeId, scopeColumn]
   )
 
   // Checklisten für dieses Szenario laden
@@ -66,9 +66,9 @@ export default function LagezentrumPage() {
       sb
         .from('checklists')
         .select('*')
-        .eq('district_id', districtId!)
+        .eq(scopeColumn, scopeId!)
         .eq('scenario_id', scenarioId!),
-    [districtId, scenarioId]
+    [scopeId, scopeColumn, scenarioId]
   )
 
   // Checklisten-Statistik
