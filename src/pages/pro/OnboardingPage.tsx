@@ -120,7 +120,13 @@ export default function OnboardingPage() {
               body: JSON.stringify({ districtId }),
             })
 
-            const munResult = await munResponse.json()
+            if (!munResponse.ok) {
+              const errText = await munResponse.text().catch(() => 'Keine Details')
+              throw new Error(`HTTP ${munResponse.status}: ${errText.substring(0, 200)}`)
+            }
+
+            let munResult
+            try { munResult = await munResponse.json() } catch { throw new Error('Ungültige Antwort vom Server (kein JSON)') }
             if (munResult.success) {
               gemeindenCount = munResult.imported + munResult.existing
             } else {

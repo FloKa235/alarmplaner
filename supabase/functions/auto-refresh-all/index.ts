@@ -138,7 +138,9 @@ function buildSystemPrompt(
   // deno-lint-ignore no-explicit-any
   municipalities: any[],
   // deno-lint-ignore no-explicit-any
-  kritisSites: any[]
+  kritisSites: any[],
+  // deno-lint-ignore no-explicit-any
+  activeWarnings?: any[]
 ): string {
   const currentMonth = new Date().toLocaleString('de-DE', { month: 'long', year: 'numeric' })
 
@@ -168,6 +170,13 @@ ${gemeindenList || '- Keine Gemeinden vorhanden'}
 ## Kritische Infrastruktur (${kritisSites.length} Objekte)
 ${kritisList || '- Keine KRITIS-Objekte vorhanden'}
 
+## Aktuelle Warnlage
+${activeWarnings && activeWarnings.length > 0
+    ? activeWarnings.map((w: { source: string; severity: string; title: string; description?: string }) =>
+        `- [${(w.source || '').toUpperCase()}] Severity: ${w.severity} — ${w.title}${w.description ? ` (${w.description.substring(0, 100)})` : ''}`
+      ).join('\n')
+    : '- Keine aktiven Warnungen vorhanden'}
+
 ## Analyse-Anweisungen
 Bewerte folgende Risikokategorien für diesen Landkreis:
 1. Hochwasser
@@ -185,6 +194,7 @@ Berücksichtige dabei:
 - Art und Verteilung der kritischen Infrastruktur
 - Typische Risiken für das Bundesland ${district.state}
 - Saisonale Faktoren (aktueller Monat: ${currentMonth})
+- WICHTIG: Aktuelle Warnlage (siehe oben). Aktive Warnungen mit Severity "severe" oder "extreme" MÜSSEN den Score der betroffenen Risikokategorie DEUTLICH erhöhen (+15 bis +30 Punkte). Auch "moderate" Warnungen sollten den Score leicht anheben (+5 bis +10).
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format (kein Markdown, kein Text drumherum):
 {
@@ -338,8 +348,17 @@ async function refreshRiskAnalysisForDistrict(supabase: any, district: any): Pro
     .eq('district_id', districtId)
     .order('name')
 
-  // Prompt bauen + KI aufrufen
-  const systemPrompt = buildSystemPrompt(district, municipalities ?? [], kritisSites ?? [])
+  // Aktive Warnungen laden (für Korrelation im KI-Prompt)
+  const { data: activeWarnings } = await supabase
+    .from('external_warnings')
+    .select('source, severity, title, description, affected_areas')
+    .eq('district_id', districtId)
+    .in('severity', ['moderate', 'severe', 'extreme'])
+    .order('severity', { ascending: false })
+    .limit(20)
+
+  // Prompt bauen + KI aufrufen (mit aktiver Warnlage)
+  const systemPrompt = buildSystemPrompt(district, municipalities ?? [], kritisSites ?? [], activeWarnings ?? [])
 
   const aiResponse = await callLangdock([
     { role: 'system', content: systemPrompt },

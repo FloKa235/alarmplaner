@@ -4,6 +4,7 @@ import {
   ShieldAlert, Loader2, Clock, Cloud,
   Droplets, Radio, Database, Timer, ExternalLink,
   Mountain, Waves, TreePine, Compass, AlertTriangle,
+  Zap, TrendingUp, ArrowRight,
 } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import StatCard from '@/components/ui/StatCard'
@@ -12,6 +13,7 @@ import { useDistrict } from '@/hooks/useDistrict'
 import { useWarnings } from '@/hooks/useWarnings'
 import { useSupabaseQuery, useSupabaseSingle } from '@/hooks/useSupabaseQuery'
 import { SECTOR_CONFIG, categoryToSector } from '@/data/sector-config'
+import { correlateWarningsWithRisks } from '@/utils/warning-risk-correlation'
 import type { DbRiskProfile, DbRiskEntry, DbDistrict, DbExternalWarning } from '@/types/database'
 
 // ─── Level Helpers ──────────────────────────────────────
@@ -171,6 +173,21 @@ export default function RisikoanalysePage() {
     return { natureHazards: nature, scenarioRisks: scenarios }
   }, [riskEntries])
 
+  // ─── Warnung-Risiko-Korrelation (Live) ─────────────
+  const correlation = useMemo(() => {
+    if (riskEntries.length === 0) return null
+    return correlateWarningsWithRisks(warnings, riskEntries, profile?.risk_score ?? 0)
+  }, [warnings, riskEntries, profile?.risk_score])
+
+  // Lookup: riskEntryId → Korrelation
+  const correlationMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof correlateWarningsWithRisks>['correlations'][number]>()
+    if (correlation) {
+      correlation.correlations.forEach(c => map.set(c.riskEntry.id, c))
+    }
+    return map
+  }, [correlation])
+
   const lastRefresh = (district as DbDistrict & { last_auto_refresh?: string | null })?.last_auto_refresh
 
   if (districtLoading || profileLoading || entriesLoading) {
@@ -181,7 +198,9 @@ export default function RisikoanalysePage() {
     )
   }
 
-  const score = profile?.risk_score ?? 0
+  const baseScore = profile?.risk_score ?? 0
+  const hasBoost = correlation && correlation.totalBoost > 0
+  const score = hasBoost ? correlation.adjustedTotalScore : baseScore
   const level = profile?.risk_level || 'mittel'
   const circleColors = scoreCircleColor(score)
 
@@ -196,10 +215,15 @@ export default function RisikoanalysePage() {
       {/* ─── 1. Gesamtrisiko + Datenquellen ────────────────── */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         {/* Gesamtrisiko – doppelte Breite */}
-        <div className="rounded-2xl border border-border bg-white p-5 transition-shadow hover:shadow-md sm:col-span-2">
+        <div className={`rounded-2xl border p-5 transition-shadow hover:shadow-md sm:col-span-2 ${hasBoost ? 'border-orange-300 bg-orange-50/30' : 'border-border bg-white'}`}>
           <div className="flex items-center gap-4">
-            <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ring-2 ${circleColors}`}>
+            <div className={`relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ring-2 ${circleColors}`}>
               <span className="text-2xl font-extrabold">{score}</span>
+              {hasBoost && (
+                <div className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm">
+                  <Zap className="h-3.5 w-3.5" />
+                </div>
+              )}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -213,6 +237,17 @@ export default function RisikoanalysePage() {
                   ? `Aktualisiert ${timeAgo(profile.generated_at)}`
                   : 'Noch keine Analyse vorhanden'}
               </p>
+              {hasBoost && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-orange-700">
+                  <Zap className="h-3 w-3" />
+                  <span>
+                    +{correlation.totalBoost} durch {correlation.risksWithWarnings} aktive{' '}
+                    {correlation.risksWithWarnings === 1 ? 'Warnung' : 'Warnungen'}
+                  </span>
+                  <span className="text-orange-400">|</span>
+                  <span>Basis-Score: {baseScore}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -252,7 +287,54 @@ export default function RisikoanalysePage() {
         </span>
       </div>
 
-      {/* ─── 2. KRITIS-Infrastruktur ───────────────────────── */}
+      {/* ─── 2. Aktive Warnung-Risiko-Korrelation ─────────── */}
+      {correlation && correlation.risksWithWarnings > 0 && (
+        <div className="mb-6 rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-500 text-white">
+              <Zap className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-text-primary">Live-Warnlage beeinflusst Risiko-Scores</h2>
+              <p className="text-xs text-text-muted">
+                {correlation.risksWithWarnings} {correlation.risksWithWarnings === 1 ? 'Risikokategorie wird' : 'Risikokategorien werden'} durch aktive Warnungen beeinflusst
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {correlation.correlations
+              .filter(c => c.hasActiveWarnings)
+              .sort((a, b) => b.scoreBoost - a.scoreBoost)
+              .map(c => (
+                <div
+                  key={c.riskEntry.id}
+                  className="flex items-center gap-3 rounded-xl border border-orange-200 bg-white/80 px-4 py-2.5"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-text-primary">{c.riskEntry.type}</span>
+                      <span className="flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-bold text-orange-700">
+                        <TrendingUp className="h-3 w-3" />
+                        +{c.scoreBoost}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {c.matchedWarnings.map(w => w.title).join(' · ')}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-right">
+                    <span className="text-xs text-text-muted">{c.riskEntry.score}%</span>
+                    <ArrowRight className="h-3 w-3 text-orange-500" />
+                    <span className="text-sm font-bold text-orange-700">{c.adjustedScore}%</span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* ─── 3. KRITIS-Infrastruktur ───────────────────────── */}
       {sectorCounts.length > 0 && (
         <div className="mb-6 rounded-2xl border border-border bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
@@ -315,13 +397,20 @@ export default function RisikoanalysePage() {
           <div className="grid gap-3 sm:grid-cols-2">
             {natureHazards.map((hazard) => {
               const HazardIcon = getNatureIcon(hazard.type)
+              const corr = correlationMap.get(hazard.id)
+              const isWarned = corr?.hasActiveWarnings
               return (
                 <div
                   key={hazard.id}
-                  className="flex items-center gap-3 rounded-xl border border-border p-4 transition-shadow hover:shadow-sm"
+                  className={`flex items-center gap-3 rounded-xl border p-4 transition-shadow hover:shadow-sm ${isWarned ? 'border-orange-200 bg-orange-50/40' : 'border-border'}`}
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-secondary">
-                    <HazardIcon className="h-4.5 w-4.5 text-text-muted" />
+                  <div className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${isWarned ? 'bg-orange-100' : 'bg-surface-secondary'}`}>
+                    <HazardIcon className={`h-4.5 w-4.5 ${isWarned ? 'text-orange-600' : 'text-text-muted'}`} />
+                    {isWarned && (
+                      <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-white">
+                        <Zap className="h-2.5 w-2.5" />
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -331,13 +420,30 @@ export default function RisikoanalysePage() {
                           {levelLabel[hazard.level] || hazard.level}
                         </Badge>
                       )}
+                      {isWarned && (
+                        <span className="flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                          <Zap className="h-2.5 w-2.5" />
+                          +{corr.scoreBoost}
+                        </span>
+                      )}
                     </div>
-                    {hazard.description && (
+                    {isWarned && corr.matchedWarnings.length > 0 ? (
+                      <p className="mt-0.5 text-xs font-medium text-orange-600 line-clamp-1">
+                        {corr.matchedWarnings.map(w => w.title).join(' · ')}
+                      </p>
+                    ) : hazard.description ? (
                       <p className="mt-0.5 text-xs text-text-muted line-clamp-2">{hazard.description}</p>
-                    )}
+                    ) : null}
                   </div>
-                  <div className="shrink-0">
-                    <span className="text-lg font-bold text-text-primary">{hazard.score}%</span>
+                  <div className="shrink-0 text-right">
+                    {isWarned ? (
+                      <div>
+                        <span className="text-lg font-bold text-orange-700">{corr.adjustedScore}%</span>
+                        <p className="text-[10px] text-text-muted line-through">{hazard.score}%</p>
+                      </div>
+                    ) : (
+                      <span className="text-lg font-bold text-text-primary">{hazard.score}%</span>
+                    )}
                   </div>
                 </div>
               )
@@ -360,30 +466,55 @@ export default function RisikoanalysePage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {scenarioRisks.map((risk) => {
-              const barColor = levelColor[(risk.level || 'mittel') as keyof typeof levelColor] || 'bg-amber-500'
+              const corr = correlationMap.get(risk.id)
+              const isWarned = corr?.hasActiveWarnings
+              const displayScore = isWarned ? corr.adjustedScore : risk.score
+              const barColor = isWarned
+                ? 'bg-gradient-to-r from-orange-400 to-orange-500'
+                : (levelColor[(risk.level || 'mittel') as keyof typeof levelColor] || 'bg-amber-500')
               return (
-                <div key={risk.id} className="rounded-2xl border border-border bg-white p-5 transition-shadow hover:shadow-md">
+                <div key={risk.id} className={`rounded-2xl border p-5 transition-shadow hover:shadow-md ${isWarned ? 'border-orange-200 bg-orange-50/30' : 'border-border bg-white'}`}>
                   <div className="mb-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <ShieldAlert className="h-4 w-4 text-text-muted" />
+                      {isWarned ? (
+                        <Zap className="h-4 w-4 text-orange-500" />
+                      ) : (
+                        <ShieldAlert className="h-4 w-4 text-text-muted" />
+                      )}
                       <h3 className="text-sm font-bold text-text-primary">{risk.type}</h3>
                     </div>
-                    {risk.level && (
-                      <Badge variant={levelVariant[risk.level as keyof typeof levelVariant]}>
-                        {levelLabel[risk.level] || risk.level}
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {isWarned && (
+                        <span className="flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                          +{corr.scoreBoost}
+                        </span>
+                      )}
+                      {risk.level && (
+                        <Badge variant={levelVariant[risk.level as keyof typeof levelVariant]}>
+                          {levelLabel[risk.level] || risk.level}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                  {risk.description && (
+                  {isWarned && corr.matchedWarnings.length > 0 ? (
+                    <p className="mb-3 text-xs font-medium text-orange-600 line-clamp-2">
+                      {corr.matchedWarnings.map(w => w.title).join(' · ')}
+                    </p>
+                  ) : risk.description ? (
                     <p className="mb-3 text-xs text-text-muted line-clamp-2">{risk.description}</p>
-                  )}
+                  ) : null}
                   <div className="mb-1 h-2 overflow-hidden rounded-full bg-surface-secondary">
                     <div
                       className={`h-full rounded-full ${barColor} transition-all duration-500`}
-                      style={{ width: `${risk.score}%` }}
+                      style={{ width: `${displayScore}%` }}
                     />
                   </div>
-                  <p className="text-right text-xs font-bold text-text-muted">{risk.score}%</p>
+                  <div className="flex items-center justify-end gap-1.5">
+                    {isWarned && (
+                      <span className="text-[10px] text-text-muted line-through">{risk.score}%</span>
+                    )}
+                    <p className={`text-xs font-bold ${isWarned ? 'text-orange-700' : 'text-text-muted'}`}>{displayScore}%</p>
+                  </div>
                 </div>
               )
             })}

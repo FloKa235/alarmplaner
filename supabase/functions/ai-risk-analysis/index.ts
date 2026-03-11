@@ -30,7 +30,9 @@ function buildSystemPrompt(
   // deno-lint-ignore no-explicit-any
   municipalities: any[],
   // deno-lint-ignore no-explicit-any
-  kritisSites: any[]
+  kritisSites: any[],
+  // deno-lint-ignore no-explicit-any
+  activeWarnings?: any[]
 ): string {
   const currentMonth = new Date().toLocaleString('de-DE', {
     month: 'long',
@@ -69,6 +71,13 @@ ${gemeindenList || '- Keine Gemeinden vorhanden'}
 ## Kritische Infrastruktur (${kritisSites.length} Objekte)
 ${kritisList || '- Keine KRITIS-Objekte vorhanden'}
 
+## Aktuelle Warnlage
+${activeWarnings && activeWarnings.length > 0
+    ? activeWarnings.map((w: { source: string; severity: string; title: string; description?: string }) =>
+        `- [${(w.source || '').toUpperCase()}] Severity: ${w.severity} — ${w.title}${w.description ? ` (${w.description.substring(0, 100)})` : ''}`
+      ).join('\n')
+    : '- Keine aktiven Warnungen vorhanden'}
+
 ## Analyse-Anweisungen
 Bewerte folgende Risikokategorien für diesen Landkreis:
 1. Hochwasser
@@ -86,6 +95,7 @@ Berücksichtige dabei:
 - Art und Verteilung der kritischen Infrastruktur
 - Typische Risiken für das Bundesland ${district.state}
 - Saisonale Faktoren (aktueller Monat: ${currentMonth})
+- WICHTIG: Aktuelle Warnlage (siehe oben). Aktive Warnungen mit Severity "severe" oder "extreme" MÜSSEN den Score der betroffenen Risikokategorie DEUTLICH erhöhen (+15 bis +30 Punkte). Auch "moderate" Warnungen sollten den Score leicht anheben (+5 bis +10).
 
 Antworte AUSSCHLIESSLICH im folgenden JSON-Format (kein Markdown, kein Text drumherum):
 {
@@ -159,11 +169,21 @@ Deno.serve(async (req) => {
       .eq('district_id', districtId)
       .order('name')
 
-    // 7. System-Prompt bauen
+    // 6b. Aktive Warnungen laden (für Korrelation)
+    const { data: activeWarnings } = await supabase
+      .from('external_warnings')
+      .select('source, severity, title, description, affected_areas')
+      .eq('district_id', districtId)
+      .in('severity', ['moderate', 'severe', 'extreme'])
+      .order('severity', { ascending: false })
+      .limit(20)
+
+    // 7. System-Prompt bauen (mit aktiver Warnlage)
     const systemPrompt = buildSystemPrompt(
       district,
       municipalities ?? [],
-      kritisSites ?? []
+      kritisSites ?? [],
+      activeWarnings ?? []
     )
 
     // 8. Langdock API aufrufen
