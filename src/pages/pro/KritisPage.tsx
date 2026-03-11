@@ -198,8 +198,17 @@ export default function KritisPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`, apikey: SUPABASE_ANON_KEY },
         body: JSON.stringify({ districtId }),
       })
-      const result = await response.json()
-      if (!result.success) throw new Error(result.error || 'Unbekannter Fehler')
+      if (!response.ok) {
+        const text = await response.text()
+        throw new Error(`HTTP ${response.status}: ${text.substring(0, 300)}`)
+      }
+      let result
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error('Ungültige Antwort vom Server (kein JSON)')
+      }
+      if (!result.success) throw new Error(result.error || result.msg || result.message || JSON.stringify(result).substring(0, 300))
       const sectorSummary = Object.entries(result.sectors || {})
         .map(([sec, count]) => `${sec}: ${count}`)
         .join(', ')
