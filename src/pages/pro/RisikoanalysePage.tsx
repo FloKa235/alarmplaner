@@ -15,6 +15,7 @@ import { useSupabaseQuery, useSupabaseSingle } from '@/hooks/useSupabaseQuery'
 import { SECTOR_CONFIG, categoryToSector } from '@/data/sector-config'
 import { correlateWarningsWithRisks } from '@/utils/warning-risk-correlation'
 import RiskTrendChart from '@/components/risk/RiskTrendChart'
+import GemeindeRiskMap from '@/components/risk/GemeindeRiskMap'
 import type { DbRiskProfile, DbRiskEntry, DbDistrict, DbExternalWarning } from '@/types/database'
 
 // ─── Level Helpers ──────────────────────────────────────
@@ -347,6 +348,11 @@ export default function RisikoanalysePage() {
           </div>
         </div>
       )}
+
+      {/* ─── 2b. Gemeinde-Risiko-Heatmap ─────────────────── */}
+      <div className="mb-6">
+        <GemeindeRiskMap />
+      </div>
 
       {/* ─── 3. KRITIS-Infrastruktur ───────────────────────── */}
       {sectorCounts.length > 0 && (
