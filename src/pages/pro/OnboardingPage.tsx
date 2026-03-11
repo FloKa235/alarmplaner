@@ -33,6 +33,7 @@ interface LoadProgress {
   szenarien: { count: number; done: boolean }
   inventar: { count: number; done: boolean }
   handbuecher: { count: number; total: number; done: boolean }
+  kiHandbuecher: { count: number; total: number; done: boolean }
 }
 
 export default function OnboardingPage() {
@@ -50,6 +51,7 @@ export default function OnboardingPage() {
     szenarien: { count: 0, done: false },
     inventar: { count: 0, done: false },
     handbuecher: { count: 0, total: 0, done: false },
+    kiHandbuecher: { count: 0, total: 0, done: false },
   })
 
   const filtered = query.length >= 2
@@ -406,6 +408,68 @@ export default function OnboardingPage() {
 
         if (cancelledRef.current) return
 
+        // ─── KI-Handbuch-Generierung für Top-3-Szenarien ───
+        // Wähle die 3 Szenarien mit höchster Severity und generiere vollständige Krisenhandbücher
+        const TOP_N = 3
+        const topScenarioIds = createdScenarioIds.length > 0
+          ? [...PRO_SCENARIOS]
+              .sort((a, b) => b.severity - a.severity)
+              .slice(0, TOP_N)
+              .map((template) => {
+                // createdScenarioIds ist in der Reihenfolge von PRO_SCENARIOS
+                const originalIdx = PRO_SCENARIOS.indexOf(template)
+                return originalIdx >= 0 && originalIdx < createdScenarioIds.length
+                  ? createdScenarioIds[originalIdx]
+                  : null
+              })
+              .filter((id): id is string => id !== null)
+          : []
+
+        if (topScenarioIds.length > 0) {
+          setProgress((p) => ({
+            ...p,
+            kiHandbuecher: { count: 0, total: topScenarioIds.length, done: false },
+          }))
+
+          let enrichedCount = 0
+          for (const scenId of topScenarioIds) {
+            if (cancelledRef.current) break
+            try {
+              const { data: enrichResult, error: enrichError } = await supabase.functions.invoke(
+                'ai-enrich-scenario',
+                { body: { scenarioId: scenId } }
+              )
+              if (!enrichError && enrichResult?.success) {
+                enrichedCount++
+              } else {
+                console.warn('KI-Handbook Enrichment Warnung:', enrichError?.message || enrichResult?.error)
+              }
+            } catch (enrichErr) {
+              console.warn('KI-Handbook Enrichment Fehler (nicht kritisch):', enrichErr)
+            }
+            if (!cancelledRef.current) {
+              setProgress((p) => ({
+                ...p,
+                kiHandbuecher: { count: enrichedCount, total: topScenarioIds.length, done: false },
+              }))
+            }
+          }
+
+          if (!cancelledRef.current) {
+            setProgress((p) => ({
+              ...p,
+              kiHandbuecher: { count: enrichedCount, total: topScenarioIds.length, done: true },
+            }))
+          }
+        } else {
+          setProgress((p) => ({
+            ...p,
+            kiHandbuecher: { count: 0, total: 0, done: true },
+          }))
+        }
+
+        if (cancelledRef.current) return
+
         // Navigate to step 3
         timers.push(setTimeout(() => {
           if (!cancelledRef.current) setStep(3)
@@ -658,6 +722,14 @@ export default function OnboardingPage() {
                   done={progress.handbuecher.done}
                   unit="Dokumente"
                 />
+                <LoadingItem
+                  icon={<Sparkles className="h-5 w-5" />}
+                  label="KI-Krisenhandbücher generieren"
+                  sublabel={`Top ${progress.kiHandbuecher.total || 3} Szenarien erhalten vollständige BSI/BBK-Handbücher`}
+                  count={progress.kiHandbuecher.count}
+                  done={progress.kiHandbuecher.done}
+                  unit="Handbücher"
+                />
               </div>
             </div>
           )}
@@ -679,7 +751,7 @@ export default function OnboardingPage() {
                 <SummaryCard icon={<Landmark className="h-5 w-5" />} value={progress.kritis.count} label="KRITIS-Objekte" />
                 <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risikokategorien" />
                 <SummaryCard icon={<Flame className="h-5 w-5" />} value={progress.szenarien.count} label="Szenarien" />
-                <SummaryCard icon={<Package className="h-5 w-5" />} value={progress.inventar.count} label="Inventar" />
+                <SummaryCard icon={<Sparkles className="h-5 w-5" />} value={progress.kiHandbuecher.count} label="KI-Handbücher" />
                 <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="Dokumente" />
               </div>
 
