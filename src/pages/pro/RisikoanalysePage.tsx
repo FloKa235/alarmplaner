@@ -16,6 +16,7 @@ import { SECTOR_CONFIG, categoryToSector } from '@/data/sector-config'
 import { correlateWarningsWithRisks } from '@/utils/warning-risk-correlation'
 import RiskTrendChart from '@/components/risk/RiskTrendChart'
 import GemeindeRiskMap from '@/components/risk/GemeindeRiskMap'
+import RiskRecommendations from '@/components/risk/RiskRecommendations'
 import type { DbRiskProfile, DbRiskEntry, DbDistrict, DbExternalWarning } from '@/types/database'
 
 // ─── Level Helpers ──────────────────────────────────────
@@ -353,6 +354,20 @@ export default function RisikoanalysePage() {
       <div className="mb-6">
         <GemeindeRiskMap />
       </div>
+
+      {/* ─── 2c. Handlungsempfehlungen ─────────────────────── */}
+      {riskEntries.length > 0 && (
+        <div className="mb-6">
+          <RiskRecommendations
+            riskEntries={riskEntries}
+            adjustedScores={
+              correlation
+                ? new Map(correlation.correlations.map(c => [c.riskEntry.id, c.adjustedScore]))
+                : undefined
+            }
+          />
+        </div>
+      )}
 
       {/* ─── 3. KRITIS-Infrastruktur ───────────────────────── */}
       {sectorCounts.length > 0 && (
