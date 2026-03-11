@@ -371,16 +371,18 @@ async function refreshRiskAnalysisForDistrict(supabase: any, district: any): Pro
     throw new Error('KI-Antwort hat ein ungültiges Format.')
   }
 
-  // Alte Profiles löschen
+  // Alte Profiles aufräumen (behalte letzte 90 für Trend-Verlauf)
   const { data: oldProfiles } = await supabase
     .from('risk_profiles')
     .select('id')
     .eq('district_id', districtId)
+    .order('generated_at', { ascending: false })
+    .range(90, 999)
 
   if (oldProfiles && oldProfiles.length > 0) {
     const oldIds = oldProfiles.map((p: { id: string }) => p.id)
     await supabase.from('risk_entries').delete().in('risk_profile_id', oldIds)
-    await supabase.from('risk_profiles').delete().eq('district_id', districtId)
+    await supabase.from('risk_profiles').delete().in('id', oldIds)
   }
 
   // Neues Profile

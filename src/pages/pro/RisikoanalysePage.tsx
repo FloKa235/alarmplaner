@@ -14,6 +14,7 @@ import { useWarnings } from '@/hooks/useWarnings'
 import { useSupabaseQuery, useSupabaseSingle } from '@/hooks/useSupabaseQuery'
 import { SECTOR_CONFIG, categoryToSector } from '@/data/sector-config'
 import { correlateWarningsWithRisks } from '@/utils/warning-risk-correlation'
+import RiskTrendChart from '@/components/risk/RiskTrendChart'
 import type { DbRiskProfile, DbRiskEntry, DbDistrict, DbExternalWarning } from '@/types/database'
 
 // ─── Level Helpers ──────────────────────────────────────
@@ -118,6 +119,14 @@ export default function RisikoanalysePage() {
     (sb) =>
       sb.from('risk_profiles').select('*').eq('district_id', districtId!)
         .order('generated_at', { ascending: false }).limit(1).single(),
+    [districtId]
+  )
+
+  // Risk Profile History (für Trend-Chart, letzte 90 Tage)
+  const { data: profileHistory } = useSupabaseQuery<DbRiskProfile>(
+    (sb) =>
+      sb.from('risk_profiles').select('*').eq('district_id', districtId!)
+        .order('generated_at', { ascending: false }).limit(180),
     [districtId]
   )
 
@@ -285,6 +294,11 @@ export default function RisikoanalysePage() {
           Automatische Analyse 2× täglich (06:00 &amp; 14:00 Uhr).
           {lastRefresh && <> Nächste Analyse: <span className="font-medium text-text-primary">{nextAnalysis(lastRefresh)}</span></>}
         </span>
+      </div>
+
+      {/* ─── 1b. Risiko-Trend-Verlauf ────────────────────── */}
+      <div className="mb-6">
+        <RiskTrendChart profiles={profileHistory} currentScore={score} />
       </div>
 
       {/* ─── 2. Aktive Warnung-Risiko-Korrelation ─────────── */}
