@@ -203,7 +203,14 @@ export default function KritisPage() {
       const sectorSummary = Object.entries(result.sectors || {})
         .map(([sec, count]) => `${sec}: ${count}`)
         .join(', ')
-      setOsmSuccess(`${result.imported} neue KRITIS-Objekte importiert (${result.total_found} gefunden, ${result.skipped} bereits vorhanden). Sektoren: ${sectorSummary}`)
+      let msg = `${result.imported} neue KRITIS-Objekte importiert (${result.total_found} gefunden, ${result.skipped} bereits vorhanden). Sektoren: ${sectorSummary}`
+      if (result.insert_errors?.length) {
+        msg += `\n⚠️ ${result.insert_errors.length} Insert-Fehler: ${result.insert_errors[0]}`
+      }
+      if (result.compliance_created) {
+        msg += '\n✅ KRITIS-DachG Compliance-Checklisten automatisch erstellt (10 Kategorien, 59 Prüfpunkte)'
+      }
+      setOsmSuccess(msg)
       refetch()
     } catch (err) { setOsmError(err instanceof Error ? err.message : 'Verbindungsfehler.') }
     finally { setOsmLoading(false) }
@@ -294,7 +301,9 @@ export default function KritisPage() {
       {osmSuccess && (
         <div className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-5">
           <p className="font-semibold text-green-900">OSM-Import abgeschlossen</p>
-          <p className="text-sm text-green-700">{osmSuccess}</p>
+          {osmSuccess.split('\n').map((line, i) => (
+            <p key={i} className={`text-sm ${line.includes('⚠️') ? 'text-amber-700 font-medium' : line.includes('✅') ? 'text-green-800 font-medium' : 'text-green-700'}`}>{line}</p>
+          ))}
         </div>
       )}
       {osmError && (

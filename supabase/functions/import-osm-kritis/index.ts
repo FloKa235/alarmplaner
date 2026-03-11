@@ -187,6 +187,99 @@ function matchesFilter(el: OverpassElement, filter: string): boolean {
   return true
 }
 
+// ─── KRITIS-DachG Compliance Templates (server-side) ──────
+const COMPLIANCE_TEMPLATES = [
+  { nummer: 1, title: 'Risikobewertungen', beschreibung: 'Systematische Bewertung aller Risiken nach dem All-Gefahren-Ansatz', gesetzesreferenz: '§ 10 KRITIS-DachG',
+    items: [
+      { id: '1.1', text: 'All-Gefahren-Ansatz implementiert (Natur, Mensch, technisch)' },
+      { id: '1.2', text: 'Naturgefahren identifiziert und bewertet' },
+      { id: '1.3', text: 'Vom Menschen verursachte Gefahren bewertet' },
+      { id: '1.4', text: 'Sektoruebergreifende Abhaengigkeiten analysiert' },
+      { id: '1.5', text: 'Risikobewertung dokumentiert und beim BSI eingereicht' },
+      { id: '1.6', text: 'Aktualisierungszyklus festgelegt (mind. alle 4 Jahre)' },
+    ] },
+  { nummer: 2, title: 'Resilienzmassnahmen', beschreibung: 'Technische und organisatorische Massnahmen zur Widerstandsfaehigkeit', gesetzesreferenz: '§ 11 KRITIS-DachG',
+    items: [
+      { id: '2.1', text: 'Massnahmen zur Verhinderung von Vorfaellen implementiert' },
+      { id: '2.2', text: 'Physische Schutzmassnahmen vorhanden' },
+      { id: '2.3', text: 'Massnahmen zur Schadensbegrenzung etabliert' },
+      { id: '2.4', text: 'Redundanzen fuer kritische Systeme eingerichtet' },
+      { id: '2.5', text: 'Wiederherstellungsverfahren definiert und getestet' },
+      { id: '2.6', text: 'Resilienzplan dem BSI vorgelegt' },
+      { id: '2.7', text: 'Massnahmen verhaeltnismaessig zum Risiko' },
+    ] },
+  { nummer: 3, title: 'Vorfallmeldungen', beschreibung: 'Pflicht zur Meldung erheblicher Stoerungen an das BSI', gesetzesreferenz: '§ 12 KRITIS-DachG',
+    items: [
+      { id: '3.1', text: 'Meldeprozess fuer erhebliche Stoerungen definiert' },
+      { id: '3.2', text: 'Fruehwarnung innerhalb 24 Stunden sichergestellt' },
+      { id: '3.3', text: 'Vorfallmeldung innerhalb 72 Stunden sichergestellt' },
+      { id: '3.4', text: 'Abschlussbericht innerhalb eines Monats vorgesehen' },
+      { id: '3.5', text: 'Verantwortliche Ansprechperson fuer BSI benannt' },
+    ] },
+  { nummer: 4, title: 'Betriebskontinuitaetsplaene', beschreibung: 'Aufrechterhaltung oder schnelle Wiederherstellung kritischer Dienste', gesetzesreferenz: '§ 13 KRITIS-DachG',
+    items: [
+      { id: '4.1', text: 'Business-Continuity-Plan fuer alle kritischen Dienste erstellt' },
+      { id: '4.2', text: 'Mindestversorgungsniveaus fuer den Krisenfall definiert' },
+      { id: '4.3', text: 'Notfall-Lieferketten und alternative Zulieferer identifiziert' },
+      { id: '4.4', text: 'Wiederanlaufplaene mit Zeitzielen dokumentiert' },
+      { id: '4.5', text: 'BCP regelmaessig getestet (mind. jaehrlich)' },
+      { id: '4.6', text: 'Testergebnisse dokumentiert und Verbesserungen umgesetzt' },
+    ] },
+  { nummer: 5, title: 'Sicherheitskonzepte', beschreibung: 'Umfassende Sicherheitskonzepte fuer KRITIS-Schutz', gesetzesreferenz: '§ 14 KRITIS-DachG',
+    items: [
+      { id: '5.1', text: 'Ganzheitliches Sicherheitskonzept erstellt' },
+      { id: '5.2', text: 'Bedrohungsszenarien definiert und Gegenmassnahmen zugeordnet' },
+      { id: '5.3', text: 'Sicherheitszonen und Schutzbereiche festgelegt' },
+      { id: '5.4', text: 'Krisenmanagement-Organisation definiert' },
+      { id: '5.5', text: 'Kommunikationsplan fuer Krisensituationen vorhanden' },
+      { id: '5.6', text: 'Schulungs- und Sensibilisierungsprogramm etabliert' },
+      { id: '5.7', text: 'Sicherheitskonzept dem BSI vorlegbar' },
+    ] },
+  { nummer: 6, title: 'Regelmaessige Ueberpruefungen', beschreibung: 'Audits, Inspektionen und Nachweise gegenueber dem BSI', gesetzesreferenz: '§ 15 KRITIS-DachG',
+    items: [
+      { id: '6.1', text: 'Regelmaessige Sicherheitsaudits durchgefuehrt (alle 3 Jahre)' },
+      { id: '6.2', text: 'Audit-Ergebnisse dokumentiert und Massnahmen abgeleitet' },
+      { id: '6.3', text: 'Interne Ueberpruefungen zwischen den Audits vorgesehen' },
+      { id: '6.4', text: 'Nachweise gegenueber dem BSI vorlegbar' },
+      { id: '6.5', text: 'Fristen und Zustaendigkeiten fuer Audits festgelegt' },
+    ] },
+  { nummer: 7, title: 'Registrierung beim BSI', beschreibung: 'Registrierung als KRITIS-Betreiber beim BSI', gesetzesreferenz: '§ 16 KRITIS-DachG',
+    items: [
+      { id: '7.1', text: 'Alle KRITIS-Anlagen identifiziert und klassifiziert' },
+      { id: '7.2', text: 'Registrierung beim BSI durchgefuehrt' },
+      { id: '7.3', text: 'Kontaktstelle fuer BSI benannt und gemeldet' },
+      { id: '7.4', text: 'Aenderungen zeitnah gemeldet' },
+    ] },
+  { nummer: 8, title: 'Personelle Sicherheit', beschreibung: 'Anforderungen an Personal mit Zugang zu kritischen Bereichen', gesetzesreferenz: '§ 17 KRITIS-DachG',
+    items: [
+      { id: '8.1', text: 'Zuverlaessigkeitsueberpruefung fuer Schluessel-Personal' },
+      { id: '8.2', text: 'Zugangsberechtigungskonzept erstellt' },
+      { id: '8.3', text: 'Regelmaessige Sicherheitsschulungen' },
+      { id: '8.4', text: 'Sensibilisierung fuer Insider-Bedrohungen' },
+      { id: '8.5', text: 'Verfahren fuer Personalwechsel definiert' },
+      { id: '8.6', text: 'Notfall-Personalplanung vorhanden' },
+    ] },
+  { nummer: 9, title: 'Physische Sicherheit', beschreibung: 'Physische Schutzmassnahmen fuer Anlagen', gesetzesreferenz: '§ 18 KRITIS-DachG',
+    items: [
+      { id: '9.1', text: 'Perimeterschutz vorhanden und gewartet' },
+      { id: '9.2', text: 'Zutrittskontrollsystem installiert' },
+      { id: '9.3', text: 'Videoueberwachung an neuralgischen Punkten' },
+      { id: '9.4', text: 'Einbruchmeldeanlage installiert und geprueft' },
+      { id: '9.5', text: 'Brandschutzkonzept umgesetzt' },
+      { id: '9.6', text: 'Hochwasser- und Unwetterschutz vorhanden' },
+      { id: '9.7', text: 'Notstromversorgung betriebsbereit und getestet' },
+    ] },
+  { nummer: 10, title: 'Cybersicherheit', beschreibung: 'IT- und OT-Sicherheitsmassnahmen gemaess BSI-Vorgaben', gesetzesreferenz: '§ 19 KRITIS-DachG i.V.m. § 8a BSIG',
+    items: [
+      { id: '10.1', text: 'ISMS nach ISO 27001 oder BSI IT-Grundschutz' },
+      { id: '10.2', text: 'Netzwerksegmentierung zwischen IT und OT' },
+      { id: '10.3', text: 'Regelmaessige Schwachstellen-Scans und Penetrationstests' },
+      { id: '10.4', text: 'SOC oder SIEM-System betrieben' },
+      { id: '10.5', text: 'Incident-Response-Plan vorhanden und getestet' },
+      { id: '10.6', text: 'Systeme zur Angriffserkennung implementiert' },
+    ] },
+]
+
 // ─── Edge Function Handler ────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -323,20 +416,69 @@ out center tags;`
     console.log(`${newSites.length} neue, ${skippedCount} bereits vorhanden`)
 
     const BATCH_SIZE = 50
+    const insertErrors: string[] = []
     for (let i = 0; i < newSites.length; i += BATCH_SIZE) {
       const chunk = newSites.slice(i, i + BATCH_SIZE)
       const { error: insertError, data: inserted } = await supabase
         .from('kritis_sites').insert(chunk).select('id')
-      if (insertError) console.warn(`Insert Fehler (${i}):`, insertError.message)
-      else insertedCount += inserted?.length ?? 0
+      if (insertError) {
+        console.warn(`Insert Fehler (${i}):`, insertError.message)
+        insertErrors.push(`Batch ${i}: ${insertError.message}`)
+      } else {
+        insertedCount += inserted?.length ?? 0
+      }
     }
 
     console.log(`KRITIS-Import fertig: ${insertedCount} eingefügt, ${skippedCount} übersprungen`)
+    if (insertErrors.length > 0) console.warn('Insert-Fehler:', insertErrors)
 
     // Sektor-Statistik
     const sectorStats: Record<string, number> = {}
     for (const s of allSites) {
       sectorStats[s.sector] = (sectorStats[s.sector] || 0) + 1
+    }
+
+    // ─── Compliance-Checklisten auto-generieren ──────────
+    let complianceCreated = false
+    try {
+      const { data: existingChecklists } = await supabase
+        .from('checklists')
+        .select('id')
+        .eq('district_id', districtId)
+        .eq('category', 'kritis_compliance')
+        .is('scenario_id', null)
+        .limit(1)
+
+      if (!existingChecklists || existingChecklists.length === 0) {
+        // Checklisten aus KRITIS-DachG Template erstellen
+        const complianceRows = COMPLIANCE_TEMPLATES.map(cat => ({
+          district_id: districtId,
+          scenario_id: null,
+          title: `${cat.nummer}. ${cat.title}`,
+          description: `${cat.beschreibung} (${cat.gesetzesreferenz})`,
+          category: 'kritis_compliance',
+          is_template: false,
+          items: cat.items.map(item => ({
+            id: item.id,
+            text: item.text,
+            status: 'open',
+            completed_at: null,
+            completed_by: null,
+          })),
+        }))
+
+        const { error: compError } = await supabase.from('checklists').insert(complianceRows)
+        if (compError) {
+          console.warn('Compliance-Checklisten Fehler:', compError.message)
+        } else {
+          complianceCreated = true
+          console.log('Compliance-Checklisten automatisch erstellt (10 Kategorien)')
+        }
+      } else {
+        console.log('Compliance-Checklisten existieren bereits — übersprungen')
+      }
+    } catch (compErr) {
+      console.warn('Compliance auto-create fehlgeschlagen:', compErr)
     }
 
     return new Response(
@@ -346,6 +488,8 @@ out center tags;`
         skipped: skippedCount,
         total_found: allSites.length,
         sectors: sectorStats,
+        insert_errors: insertErrors.length > 0 ? insertErrors : undefined,
+        compliance_created: complianceCreated,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
