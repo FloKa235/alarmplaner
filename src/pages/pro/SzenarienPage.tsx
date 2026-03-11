@@ -1,7 +1,7 @@
 import {
   Flame, Plus, Sparkles, Search, Loader2, ChevronDown, LayoutGrid, List, Calendar, ClipboardList,
   CloudRain, Wind, Thermometer, Snowflake, TreePine, Crosshair, Biohazard, Wifi, Swords,
-  Bug, Wrench, Zap, Bomb,
+  Bug, Wrench, Zap, Bomb, TrendingUp, AlertTriangle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo } from 'react'
@@ -10,9 +10,11 @@ import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import Modal, { FormField, inputClass, selectClass, textareaClass, ModalFooter, ConfirmDialog, RowActions } from '@/components/ui/Modal'
 import { useDistrict } from '@/hooks/useDistrict'
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery'
+import { useWarnings } from '@/hooks/useWarnings'
+import { useSupabaseQuery, useSupabaseSingle } from '@/hooks/useSupabaseQuery'
 import { supabase } from '@/lib/supabase'
-import type { DbScenario, DbScenarioPhase } from '@/types/database'
+import { linkScenariosToRisks, type ScenarioRiskLink } from '@/utils/scenario-risk-link'
+import type { DbScenario, DbScenarioPhase, DbRiskProfile, DbRiskEntry } from '@/types/database'
 
 const scenarioTypes = [
   'Starkregen',
@@ -104,6 +106,8 @@ export default function SzenarienPage() {
   const [deleteTarget, setDeleteTarget] = useState<DbScenario | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  const { warnings } = useWarnings(districtId)
+
   const { data: scenarios, loading, refetch } = useSupabaseQuery<DbScenario>(
     (sb) =>
       sb
@@ -113,6 +117,34 @@ export default function SzenarienPage() {
         .order('created_at', { ascending: false }),
     [districtId]
   )
+
+  // Aktuelles Risiko-Profil + Entries laden (für dynamische Severity)
+  const { data: latestProfile } = useSupabaseSingle<DbRiskProfile>(
+    (sb) =>
+      sb.from('risk_profiles').select('*').eq('district_id', districtId!)
+        .order('generated_at', { ascending: false }).limit(1).single(),
+    [districtId]
+  )
+
+  const { data: riskEntries } = useSupabaseQuery<DbRiskEntry>(
+    (sb) => {
+      if (!latestProfile?.id) return sb.from('risk_entries').select('*').eq('risk_profile_id', '00000000-0000-0000-0000-000000000000')
+      return sb.from('risk_entries').select('*').eq('risk_profile_id', latestProfile.id).order('score', { ascending: false })
+    },
+    [latestProfile?.id]
+  )
+
+  // Szenario-Risiko-Verknüpfung
+  const riskLinkSummary = useMemo(() =>
+    linkScenariosToRisks(scenarios, riskEntries, warnings),
+    [scenarios, riskEntries, warnings]
+  )
+
+  const riskLinkMap = useMemo(() => {
+    const map = new Map<string, ScenarioRiskLink>()
+    riskLinkSummary.links.forEach(l => map.set(l.scenarioId, l))
+    return map
+  }, [riskLinkSummary])
 
   // Phasen für alle Szenarien laden (für Count-Anzeige)
   const { data: allPhases } = useSupabaseQuery<DbScenarioPhase>(
@@ -464,6 +496,17 @@ export default function SzenarienPage() {
         </p>
       )}
 
+      {/* ─── Live-Risiko-Banner ───────────────────────────── */}
+      {riskLinkSummary.elevatedCount > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-2.5 text-xs">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-orange-500" />
+          <span className="text-text-secondary">
+            <strong className="text-orange-700">{riskLinkSummary.elevatedCount} {riskLinkSummary.elevatedCount === 1 ? 'Szenario' : 'Szenarien'}</strong>
+            {' '}mit erhöhter Einstufung durch aktuelle Warnlage und Risikoanalyse
+          </span>
+        </div>
+      )}
+
       {/* ─── Szenario-Liste / Grid ───────────────────────── */}
       {filtered.length === 0 ? (
         <div className="rounded-2xl border border-border bg-white p-12 text-center">
@@ -478,19 +521,35 @@ export default function SzenarienPage() {
           {filtered.map((scenario) => {
             const ps = phaseStats[scenario.id]
             const ScenarioIcon = getScenarioIcon(scenario.type)
-            const iconColors = getSeverityIconColors(scenario.severity)
+            const link = riskLinkMap.get(scenario.id)
+            const displaySeverity = link?.effectiveSeverity ?? scenario.severity
+            const iconColors = getSeverityIconColors(displaySeverity)
+            const isElevated = link?.isElevated
             return (
               <div
                 key={scenario.id}
-                className="flex items-center gap-4 rounded-2xl border border-border bg-white p-6 transition-shadow hover:shadow-md"
+                className={`flex items-center gap-4 rounded-2xl border p-6 transition-shadow hover:shadow-md ${
+                  isElevated ? 'border-orange-200 bg-orange-50/20' : 'border-border bg-white'
+                }`}
               >
                 <Link to={`/pro/szenarien/${scenario.id}`} className="flex flex-1 items-center gap-4">
-                  <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
+                  <div className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
                     <ScenarioIcon className="h-6 w-6" />
+                    {isElevated && (
+                      <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-white">
+                        <TrendingUp className="h-2.5 w-2.5" />
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 overflow-hidden">
                     <div className="mb-1 flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-text-primary">{scenario.title}</h3>
+                      {isElevated && (
+                        <span className="flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                          <TrendingUp className="h-2.5 w-2.5" />
+                          +{link.severityBoost}
+                        </span>
+                      )}
                       {scenario.is_ai_generated && (
                         <Badge variant="info">
                           <Sparkles className="mr-1 h-3 w-3" />
@@ -501,16 +560,21 @@ export default function SzenarienPage() {
                     <div className="flex flex-wrap gap-3 text-xs text-text-muted">
                       <span>Typ: {scenario.type}</span>
                       {ps && <span>{ps.phases} Phasen · {ps.tasks} Aufgaben</span>}
-                      <span>Erstellt: {new Date(scenario.created_at).toLocaleDateString('de-DE')}</span>
+                      {isElevated && link.lageText ? (
+                        <span className="font-medium text-orange-600">{link.lageText}</span>
+                      ) : (
+                        <span>Erstellt: {new Date(scenario.created_at).toLocaleDateString('de-DE')}</span>
+                      )}
                     </div>
                   </div>
                   <div className="hidden items-center gap-3 sm:flex">
                     <div className="text-right">
-                      <p className="text-lg font-bold text-text-primary">{scenario.severity}</p>
+                      <p className={`text-lg font-bold ${isElevated ? 'text-orange-700' : 'text-text-primary'}`}>{displaySeverity}</p>
+                      {isElevated && <p className="text-[10px] text-text-muted line-through">{scenario.severity}</p>}
                       <p className="text-xs text-text-muted">Schwere</p>
                     </div>
-                    <Badge variant={getSeverityVariant(scenario.severity)}>
-                      {getSeverityLabel(scenario.severity)}
+                    <Badge variant={getSeverityVariant(displaySeverity)}>
+                      {getSeverityLabel(displaySeverity)}
                     </Badge>
                   </div>
                 </Link>
@@ -528,11 +592,16 @@ export default function SzenarienPage() {
           {filtered.map((scenario) => {
             const ps = phaseStats[scenario.id]
             const ScenarioIcon = getScenarioIcon(scenario.type)
-            const iconColors = getSeverityIconColors(scenario.severity)
+            const link = riskLinkMap.get(scenario.id)
+            const displaySeverity = link?.effectiveSeverity ?? scenario.severity
+            const iconColors = getSeverityIconColors(displaySeverity)
+            const isElevated = link?.isElevated
             return (
               <div
                 key={scenario.id}
-                className="group relative rounded-2xl border border-border bg-white p-5 transition-shadow hover:shadow-md"
+                className={`group relative rounded-2xl border p-5 transition-shadow hover:shadow-md ${
+                  isElevated ? 'border-orange-200 bg-orange-50/20' : 'border-border bg-white'
+                }`}
               >
                 {/* RowActions oben rechts */}
                 <div className="absolute right-3 top-3 opacity-0 transition-opacity group-hover:opacity-100">
@@ -545,15 +614,26 @@ export default function SzenarienPage() {
                 <Link to={`/pro/szenarien/${scenario.id}`} className="block">
                   {/* Icon + Titel */}
                   <div className="mb-3 flex items-start gap-3">
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
+                    <div className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconColors.bg} ${iconColors.text}`}>
                       <ScenarioIcon className="h-5 w-5" />
+                      {isElevated && (
+                        <div className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-orange-500 text-white">
+                          <TrendingUp className="h-2.5 w-2.5" />
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-text-primary leading-snug line-clamp-1">{scenario.title}</h3>
                       <div className="mt-1 flex flex-wrap gap-1.5">
-                        <Badge variant={getSeverityVariant(scenario.severity)}>
-                          {getSeverityLabel(scenario.severity)}
+                        <Badge variant={getSeverityVariant(displaySeverity)}>
+                          {getSeverityLabel(displaySeverity)}
                         </Badge>
+                        {isElevated && (
+                          <span className="flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                            <TrendingUp className="h-2.5 w-2.5" />
+                            +{link.severityBoost}
+                          </span>
+                        )}
                         {scenario.is_ai_generated && (
                           <Badge variant="info">
                             <Sparkles className="mr-0.5 h-2.5 w-2.5" />
@@ -564,22 +644,36 @@ export default function SzenarienPage() {
                     </div>
                   </div>
 
+                  {/* Live-Lage Info */}
+                  {isElevated && link.lageText && (
+                    <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-orange-100/60 px-2.5 py-1.5 text-[10px] font-medium text-orange-700">
+                      <AlertTriangle className="h-3 w-3 shrink-0" />
+                      <span className="line-clamp-1">{link.lageText}</span>
+                    </div>
+                  )}
+
                   {/* Beschreibung */}
-                  {scenario.description && (
+                  {!isElevated && scenario.description && (
                     <p className="mb-3 text-xs text-text-muted line-clamp-2">{scenario.description}</p>
                   )}
 
                   {/* Schweregrad-Bar */}
                   <div className="mb-1 flex items-center justify-between text-xs text-text-muted">
                     <span>Schweregrad</span>
-                    <span className="font-bold text-text-primary">{scenario.severity}%</span>
+                    <div className="flex items-center gap-1.5">
+                      {isElevated && (
+                        <span className="text-[10px] text-text-muted line-through">{scenario.severity}%</span>
+                      )}
+                      <span className={`font-bold ${isElevated ? 'text-orange-700' : 'text-text-primary'}`}>{displaySeverity}%</span>
+                    </div>
                   </div>
                   <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-surface-secondary">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
-                        scenario.severity >= 70 ? 'bg-red-500' : scenario.severity >= 40 ? 'bg-amber-500' : 'bg-green-500'
+                        isElevated ? 'bg-gradient-to-r from-orange-400 to-orange-500' :
+                        displaySeverity >= 70 ? 'bg-red-500' : displaySeverity >= 40 ? 'bg-amber-500' : 'bg-green-500'
                       }`}
-                      style={{ width: `${scenario.severity}%` }}
+                      style={{ width: `${displaySeverity}%` }}
                     />
                   </div>
 
