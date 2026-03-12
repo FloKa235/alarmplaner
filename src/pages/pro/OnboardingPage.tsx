@@ -734,25 +734,64 @@ export default function OnboardingPage() {
             </div>
           )}
 
-          {/* Step 3: Fertig */}
+          {/* Step 3: Fertig + Guided Next Steps */}
           {step === 3 && (
-            <div className="text-center">
-              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-green-50">
-                <CheckCircle2 className="h-10 w-10 text-green-500" />
+            <div>
+              <div className="text-center">
+                <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-green-50">
+                  <CheckCircle2 className="h-10 w-10 text-green-500" />
+                </div>
+                <h1 className="mb-2 text-2xl font-bold text-text-primary">Setup abgeschlossen!</h1>
+                <p className="mb-6 text-sm text-text-secondary">
+                  {selectedDistrict?.name} ist vollständig eingerichtet.
+                </p>
               </div>
-              <h1 className="mb-2 text-2xl font-bold text-text-primary">Setup abgeschlossen!</h1>
-              <p className="mb-8 text-text-secondary">
-                {selectedDistrict?.name} ist vollständig eingerichtet. Alle Daten wurden geladen.
-              </p>
 
               {/* Summary */}
-              <div className="mb-8 grid grid-cols-3 gap-3">
+              <div className="mb-6 grid grid-cols-3 gap-2">
                 <SummaryCard icon={<Building2 className="h-5 w-5" />} value={progress.gemeinden.count} label="Gemeinden" />
                 <SummaryCard icon={<Landmark className="h-5 w-5" />} value={progress.kritis.count} label="KRITIS-Objekte" />
-                <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risikokategorien" />
+                <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risiken" />
                 <SummaryCard icon={<Flame className="h-5 w-5" />} value={progress.szenarien.count} label="Szenarien" />
                 <SummaryCard icon={<Sparkles className="h-5 w-5" />} value={progress.kiHandbuecher.count} label="KI-Handbücher" />
                 <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="Dokumente" />
+              </div>
+
+              {/* Guided Next Steps */}
+              <div className="mb-6 rounded-2xl border border-primary-100 bg-primary-50/30 p-5">
+                <h2 className="mb-3 text-sm font-bold text-text-primary">Empfohlene nächste Schritte</h2>
+                <div className="space-y-2">
+                  <NextStepItem
+                    number={1}
+                    title="Risikoanalyse prüfen"
+                    description="KI hat Risiken für Ihren Landkreis analysiert. Prüfen Sie die Ergebnisse."
+                    onClick={() => navigate('/pro/risikoanalyse')}
+                  />
+                  <NextStepItem
+                    number={2}
+                    title="Krisenszenarien anpassen"
+                    description={`${progress.kiHandbuecher.count} Szenarien haben KI-Handbücher. Passen Sie diese an Ihre Gegebenheiten an.`}
+                    onClick={() => navigate('/pro/szenarien')}
+                  />
+                  <NextStepItem
+                    number={3}
+                    title="Kontaktverzeichnis aufbauen"
+                    description="Tragen Sie Einsatzleiter, Behörden und Hilfsorganisationen ein."
+                    onClick={() => navigate('/pro/kontakte')}
+                  />
+                  <NextStepItem
+                    number={4}
+                    title="Inventar aktualisieren"
+                    description="Gleichen Sie Ihre tatsächlichen Bestände mit den KI-Empfehlungen ab."
+                    onClick={() => navigate('/pro/inventar')}
+                  />
+                </div>
+              </div>
+
+              {/* Hinweis: Automatische Updates */}
+              <div className="mb-6 rounded-xl border border-border bg-surface-secondary px-4 py-3 text-center text-xs text-text-muted">
+                <Sparkles className="mr-1 inline h-3.5 w-3.5 text-primary-600" />
+                Die KI-Risikoanalyse aktualisiert sich automatisch 2x täglich (06:00 &amp; 14:00 Uhr).
               </div>
 
               <button
@@ -828,5 +867,33 @@ function SummaryCard({ icon, value, label }: { icon: React.ReactNode; value: num
       <p className="text-2xl font-bold text-text-primary">{value}</p>
       <p className="text-xs text-text-muted">{label}</p>
     </div>
+  )
+}
+
+function NextStepItem({
+  number,
+  title,
+  description,
+  onClick,
+}: {
+  number: number
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 text-left transition-all hover:border-primary-200 hover:shadow-sm"
+    >
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-xs font-bold text-primary-700">
+        {number}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-text-primary">{title}</p>
+        <p className="text-xs text-text-muted line-clamp-1">{description}</p>
+      </div>
+      <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
+    </button>
   )
 }
