@@ -78,7 +78,9 @@ export default function SignupPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Redirect if already logged in — rollenbasiert
-  if (!loading && user) {
+  // WICHTIG: Nicht während Signup redirecten! Sonst blitzt /app kurz auf,
+  // bevor handleSignup zu /pro/onboarding navigiert.
+  if (!loading && user && !isSubmitting) {
     return <Navigate to="/app" replace />
   }
 

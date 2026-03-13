@@ -103,89 +103,106 @@ export default function OnboardingPage() {
 
         const districtId = insertedDistrict.id
 
-        // Real Gemeinden-Import via OSM Edge Function
+        // Real Gemeinden + KRITIS Import — PARALLEL für schnelleres Onboarding
         const { data: { session } } = await supabase.auth.getSession()
         const accessToken = session?.access_token
 
-        setProgress((p) => ({ ...p, gemeinden: { count: 5, done: false } }))
+        setProgress((p) => ({
+          ...p,
+          gemeinden: { count: 5, done: false },
+          kritis: { count: 12, done: false },
+        }))
 
         let gemeindenCount = 0
-        if (accessToken) {
-          try {
-            const munResponse = await fetch(`${SUPABASE_URL}/functions/v1/import-osm-municipalities`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-                apikey: SUPABASE_ANON_KEY,
-              },
-              body: JSON.stringify({ districtId }),
-            })
-
-            if (!munResponse.ok) {
-              const errText = await munResponse.text().catch(() => 'Keine Details')
-              throw new Error(`HTTP ${munResponse.status}: ${errText.substring(0, 200)}`)
-            }
-
-            let munResult
-            try { munResult = await munResponse.json() } catch { throw new Error('Ungültige Antwort vom Server (kein JSON)') }
-            if (munResult.success) {
-              gemeindenCount = munResult.imported + munResult.existing
-            } else {
-              console.warn('Gemeinden-Import Warnung:', munResult.error)
-              setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: munResult.error || 'Import fehlgeschlagen' } }))
-            }
-          } catch (munErr) {
-            console.warn('Gemeinden-Import Fehler (nicht kritisch):', munErr)
-            setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: 'Netzwerkfehler beim Import' } }))
-          }
-        }
-
-        if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, gemeinden: { count: gemeindenCount, done: true } }))
-
-        // Real KRITIS-Import via OSM Edge Function
-        setProgress((p) => ({ ...p, kritis: { count: 5, done: false } }))
-
         let kritisCount = 0
+
         if (accessToken) {
-          try {
-            setProgress((p) => ({ ...p, kritis: { count: 12, done: false } }))
+          // Beide Imports parallel starten
+          const [gemeindenResult, kritisResult] = await Promise.allSettled([
+            // Gemeinden-Import
+            (async () => {
+              try {
+                const munResponse = await fetch(`${SUPABASE_URL}/functions/v1/import-osm-municipalities`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${accessToken}`,
+                    apikey: SUPABASE_ANON_KEY,
+                  },
+                  body: JSON.stringify({ districtId }),
+                })
 
-            const osmResponse = await fetch(`${SUPABASE_URL}/functions/v1/import-osm-kritis`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-                apikey: SUPABASE_ANON_KEY,
-              },
-              body: JSON.stringify({ districtId }),
-            })
+                if (!munResponse.ok) {
+                  const errText = await munResponse.text().catch(() => 'Keine Details')
+                  throw new Error(`HTTP ${munResponse.status}: ${errText.substring(0, 200)}`)
+                }
 
-            const osmResult = await osmResponse.json()
-            if (osmResult.success) {
-              kritisCount = osmResult.imported + osmResult.skipped
-            } else {
-              console.warn('KRITIS-Import Warnung:', osmResult.error)
-              kritisCount = 0
-              setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: osmResult.error || 'Import fehlgeschlagen' } }))
-            }
-          } catch (osmErr) {
-            console.warn('KRITIS-Import Fehler (nicht kritisch):', osmErr)
-            setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: 'Netzwerkfehler beim Import' } }))
+                let munResult
+                try { munResult = await munResponse.json() } catch { throw new Error('Ungültige Antwort vom Server (kein JSON)') }
+                if (munResult.success) {
+                  return { count: munResult.imported + munResult.existing }
+                } else {
+                  setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: munResult.error || 'Import fehlgeschlagen' } }))
+                  return { count: 0, error: munResult.error }
+                }
+              } catch (munErr) {
+                console.warn('Gemeinden-Import Fehler (nicht kritisch):', munErr)
+                setProgress((p) => ({ ...p, gemeinden: { ...p.gemeinden, error: 'Netzwerkfehler beim Import' } }))
+                return { count: 0, error: 'Netzwerkfehler' }
+              }
+            })(),
+            // KRITIS-Import
+            (async () => {
+              try {
+                const osmResponse = await fetch(`${SUPABASE_URL}/functions/v1/import-osm-kritis`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${accessToken}`,
+                    apikey: SUPABASE_ANON_KEY,
+                  },
+                  body: JSON.stringify({ districtId }),
+                })
+
+                const osmResult = await osmResponse.json()
+                if (osmResult.success) {
+                  return { count: osmResult.imported + osmResult.skipped }
+                } else {
+                  console.warn('KRITIS-Import Warnung:', osmResult.error)
+                  setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: osmResult.error || 'Import fehlgeschlagen' } }))
+                  return { count: 0, error: osmResult.error }
+                }
+              } catch (osmErr) {
+                console.warn('KRITIS-Import Fehler (nicht kritisch):', osmErr)
+                setProgress((p) => ({ ...p, kritis: { ...p.kritis, error: 'Netzwerkfehler beim Import' } }))
+                return { count: 0, error: 'Netzwerkfehler' }
+              }
+            })(),
+          ])
+
+          if (gemeindenResult.status === 'fulfilled') {
+            gemeindenCount = gemeindenResult.value.count
+          }
+          if (kritisResult.status === 'fulfilled') {
+            kritisCount = kritisResult.value.count
           }
         }
 
         if (cancelledRef.current) return
-        setProgress((p) => ({ ...p, kritis: { count: kritisCount, done: true } }))
+        setProgress((p) => ({
+          ...p,
+          gemeinden: { count: gemeindenCount, done: true },
+          kritis: { count: kritisCount, done: true },
+        }))
 
-        // Real: Warnungen abrufen + KI-Risikoanalyse starten
+        // Real: Warnungen abrufen + KI-Risikoanalyse — PARALLEL starten
         setProgress((p) => ({ ...p, risiken: { count: 0, done: false } }))
 
         if (accessToken) {
-          // 1) Warnungen abrufen (NINA, DWD, Pegelonline)
-          try {
-            const warnResponse = await fetch(`${SUPABASE_URL}/functions/v1/fetch-warnings`, {
+          // Warnungen und KI-Risikoanalyse parallel
+          const [warnSettled, riskSettled] = await Promise.allSettled([
+            // 1) Warnungen abrufen (NINA, DWD, Pegelonline)
+            fetch(`${SUPABASE_URL}/functions/v1/fetch-warnings`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -193,35 +210,25 @@ export default function OnboardingPage() {
                 apikey: SUPABASE_ANON_KEY,
               },
               body: JSON.stringify({ districtId }),
-            })
-            const warnResult = await warnResponse.json()
-            if (warnResult.success) {
-              setProgress((p) => ({ ...p, risiken: { count: warnResult.inserted || warnResult.total || 3, done: false } }))
-            }
-          } catch (warnErr) {
-            console.warn('Warnungen-Fetch Fehler (nicht kritisch):', warnErr)
+            }).then(r => r.json()).catch(() => null),
+            // 2) KI-Risikoanalyse erstellen
+            fetch(`${SUPABASE_URL}/functions/v1/ai-risk-analysis`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${accessToken}`,
+                apikey: SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({ districtId }),
+            }).then(r => r.json()).catch(() => null),
+          ])
+
+          if (warnSettled.status === 'fulfilled' && warnSettled.value?.success) {
+            setProgress((p) => ({ ...p, risiken: { count: warnSettled.value.inserted || warnSettled.value.total || 3, done: false } }))
           }
-
-          if (cancelledRef.current) return
-
-          // 2) KI-Risikoanalyse erstellen
-          try {
-            const riskResponse = await fetch(`${SUPABASE_URL}/functions/v1/ai-risk-analysis`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${accessToken}`,
-                apikey: SUPABASE_ANON_KEY,
-              },
-              body: JSON.stringify({ districtId }),
-            })
-            const riskResult = await riskResponse.json()
-            if (riskResult.success && riskResult.data) {
-              const riskEntryCount = riskResult.data.entries?.length || 8
-              setProgress((p) => ({ ...p, risiken: { count: riskEntryCount, done: false } }))
-            }
-          } catch (riskErr) {
-            console.warn('KI-Risikoanalyse Fehler (nicht kritisch):', riskErr)
+          if (riskSettled.status === 'fulfilled' && riskSettled.value?.success && riskSettled.value.data) {
+            const riskEntryCount = riskSettled.value.data.entries?.length || 8
+            setProgress((p) => ({ ...p, risiken: { count: riskEntryCount, done: false } }))
           }
         }
 
@@ -747,10 +754,24 @@ export default function OnboardingPage() {
                 </p>
               </div>
 
+              {/* Fehler-Hinweis wenn Gemeinden oder KRITIS fehlen */}
+              {(progress.gemeinden.error || progress.kritis.error) && (
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  <AlertTriangle className="mr-1.5 inline h-4 w-4" />
+                  {progress.gemeinden.error && progress.kritis.error
+                    ? 'Gemeinden- und KRITIS-Import fehlgeschlagen (Overpass API nicht erreichbar).'
+                    : progress.gemeinden.error
+                      ? 'Gemeinden-Import fehlgeschlagen.'
+                      : 'KRITIS-Import fehlgeschlagen.'
+                  }
+                  {' '}Diese Daten können später über Einstellungen → Daten aktualisieren nachgeladen werden.
+                </div>
+              )}
+
               {/* Summary */}
               <div className="mb-6 grid grid-cols-3 gap-2">
-                <SummaryCard icon={<Building2 className="h-5 w-5" />} value={progress.gemeinden.count} label="Gemeinden" />
-                <SummaryCard icon={<Landmark className="h-5 w-5" />} value={progress.kritis.count} label="KRITIS-Objekte" />
+                <SummaryCard icon={<Building2 className="h-5 w-5" />} value={progress.gemeinden.count} label="Gemeinden" error={!!progress.gemeinden.error} />
+                <SummaryCard icon={<Landmark className="h-5 w-5" />} value={progress.kritis.count} label="KRITIS-Objekte" error={!!progress.kritis.error} />
                 <SummaryCard icon={<ShieldAlert className="h-5 w-5" />} value={progress.risiken.count} label="Risiken" />
                 <SummaryCard icon={<Flame className="h-5 w-5" />} value={progress.szenarien.count} label="Szenarien" />
                 <SummaryCard icon={<Sparkles className="h-5 w-5" />} value={progress.kiHandbuecher.count} label="KI-Handbücher" />
@@ -858,13 +879,13 @@ function LoadingItem({
   )
 }
 
-function SummaryCard({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+function SummaryCard({ icon, value, label, error }: { icon: React.ReactNode; value: number; label: string; error?: boolean }) {
   return (
-    <div className="rounded-2xl border border-border bg-white p-4 text-center">
-      <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600">
-        {icon}
+    <div className={`rounded-2xl border p-4 text-center ${error ? 'border-amber-200 bg-amber-50/50' : 'border-border bg-white'}`}>
+      <div className={`mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl ${error ? 'bg-amber-100 text-amber-600' : 'bg-primary-50 text-primary-600'}`}>
+        {error ? <AlertTriangle className="h-5 w-5" /> : icon}
       </div>
-      <p className="text-2xl font-bold text-text-primary">{value}</p>
+      <p className={`text-2xl font-bold ${error ? 'text-amber-600' : 'text-text-primary'}`}>{value}</p>
       <p className="text-xs text-text-muted">{label}</p>
     </div>
   )

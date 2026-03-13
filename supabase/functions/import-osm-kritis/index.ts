@@ -123,33 +123,43 @@ interface OverpassElement {
   tags?: Record<string, string>
 }
 
-async function queryOverpass(query: string, retries = 3): Promise<OverpassElement[]> {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`Overpass (Versuch ${attempt}/${retries})...`)
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 55000) // 55s hard limit
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal,
-      })
-      clearTimeout(timeout)
-      if (response.status === 429 || response.status === 504) {
-        const waitMs = attempt * 3000
-        console.warn(`Overpass ${response.status} – warte ${waitMs}ms...`)
-        await new Promise((r) => setTimeout(r, waitMs))
-        continue
+// Fallback-Endpoints falls Haupt-API langsam/blockiert
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+]
+
+async function queryOverpass(query: string, retries = 2): Promise<OverpassElement[]> {
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`Overpass ${endpoint.split('//')[1]?.split('/')[0]} (Versuch ${attempt}/${retries})...`)
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 45000)
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+        if (response.status === 429 || response.status === 504) {
+          console.warn(`Overpass ${response.status} – versuche nächsten Endpoint`)
+          break
+        }
+        if (!response.ok) { console.warn(`Overpass HTTP ${response.status}`); break }
+        const data = await response.json()
+        const elements = (data.elements || []) as OverpassElement[]
+        console.log(`Overpass Erfolg: ${elements.length} Elemente`)
+        return elements
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`Overpass Versuch ${attempt} fehlgeschlagen: ${msg}`)
+        if (attempt < retries) await new Promise((r) => setTimeout(r, 2000))
       }
-      if (!response.ok) { console.warn(`Overpass HTTP ${response.status}`); return [] }
-      const data = await response.json()
-      return (data.elements || []) as OverpassElement[]
-    } catch (err) {
-      console.warn(`Overpass Versuch ${attempt} fehlgeschlagen:`, err)
-      if (attempt < retries) await new Promise((r) => setTimeout(r, attempt * 2000))
     }
   }
+  console.error('Alle Overpass-Endpoints fehlgeschlagen')
   return []
 }
 
