@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Users, MapPin, Building2, AlertTriangle, Flame, Package, Bell, Landmark,
   ClipboardList, ChevronRight, ChevronDown, Loader2, TrendingUp, ShieldAlert,
   CheckCircle2, CircleAlert, CircleDot, ArrowRight, RefreshCw, CloudSun, ExternalLink,
-  Zap, Radio,
+  Zap, Radio, X, Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useCrisis } from '@/contexts/CrisisContext'
@@ -44,6 +44,23 @@ export default function ProDashboard() {
   const { district, districtId, loading: districtLoading } = useDistrict()
   const { isActive: crisisActive, scenarioTitle: crisisScenarioTitle } = useCrisis()
   const [showAllGemeinden, setShowAllGemeinden] = useState(false)
+
+  // ─── Welcome-Card (nächste Schritte) ────────────────
+  const [showWelcome, setShowWelcome] = useState(false)
+  useEffect(() => {
+    if (!district) return
+    const dismissed = localStorage.getItem(`welcome-dismissed-${districtId}`)
+    if (dismissed) return
+    // Zeige nur wenn District in den letzten 7 Tagen erstellt wurde
+    const created = new Date(district.created_at || 0)
+    const daysSinceCreation = (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24)
+    if (daysSinceCreation <= 7) setShowWelcome(true)
+  }, [district, districtId])
+
+  const dismissWelcome = () => {
+    setShowWelcome(false)
+    localStorage.setItem(`welcome-dismissed-${districtId}`, '1')
+  }
 
   // ─── Queries ─────────────────────────────────────
 
@@ -279,6 +296,71 @@ export default function ProDashboard() {
         description="Geografische Übersicht, Gemeinden und Vorbereitungsstatus."
         badge={district?.state || 'Landkreis'}
       />
+
+      {/* ── Welcome-Card: Empfohlene nächste Schritte ── */}
+      {showWelcome && (
+        <div className="mb-6 rounded-2xl border border-primary-200 bg-gradient-to-r from-primary-50 to-primary-50/50 p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary-600" />
+              <h3 className="font-bold text-text-primary">Willkommen! Empfohlene nächste Schritte</h3>
+            </div>
+            <button
+              onClick={dismissWelcome}
+              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-white hover:text-text-primary"
+              title="Ausblenden"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link
+              to="/pro/risikoanalyse"
+              className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 transition-all hover:border-primary-200 hover:shadow-sm"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-700">1</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text-primary">Risikoanalyse prüfen</p>
+                <p className="text-xs text-text-muted">KI hat Risiken für Ihren Landkreis analysiert.</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+            <Link
+              to="/pro/szenarien"
+              className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 transition-all hover:border-primary-200 hover:shadow-sm"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-700">2</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text-primary">Krisenszenarien anpassen</p>
+                <p className="text-xs text-text-muted">KI-Handbücher prüfen und an Gegebenheiten anpassen.</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+            <Link
+              to="/pro/alarmierung/kontakte"
+              className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 transition-all hover:border-primary-200 hover:shadow-sm"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-700">3</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text-primary">Kontaktverzeichnis aufbauen</p>
+                <p className="text-xs text-text-muted">Einsatzleiter, Behörden und Hilfsorganisationen eintragen.</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+            <Link
+              to="/pro/inventar"
+              className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 transition-all hover:border-primary-200 hover:shadow-sm"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-sm font-bold text-primary-700">4</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-text-primary">Inventar aktualisieren</p>
+                <p className="text-xs text-text-muted">Tatsächliche Bestände mit KI-Empfehlungen abgleichen.</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* ── Krisenvorsorge-Strip (4 Cards) ──────────── */}
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

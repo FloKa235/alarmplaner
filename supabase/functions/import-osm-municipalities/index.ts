@@ -67,6 +67,62 @@ function extractCoords(el: OverpassElement): { lat: number; lon: number } | null
   return null
 }
 
+// ─── Wikidata SPARQL: Einwohnerzahlen per AGS-Code ───────
+async function fetchWikidataPopulation(ags5: string): Promise<Map<string, number>> {
+  const populationMap = new Map<string, number>()
+
+  // SPARQL-Abfrage: Alle Gemeinden mit AGS-Code im Landkreis + Einwohnerzahl
+  // P439 = Amtlicher Gemeindeschlüssel, P1082 = Einwohnerzahl
+  const sparql = `
+SELECT ?ags (MAX(?pop) AS ?population) WHERE {
+  ?item wdt:P439 ?ags .
+  ?item p:P1082 ?popStatement .
+  ?popStatement ps:P1082 ?pop .
+  FILTER(STRSTARTS(?ags, "${ags5}"))
+}
+GROUP BY ?ags
+`
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 20000) // 20s Limit
+
+    const response = await fetch(
+      `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparql)}&format=json`,
+      {
+        headers: {
+          'User-Agent': 'Alarmplaner/1.0 (https://alarmplaner.de)',
+          'Accept': 'application/sparql-results+json',
+        },
+        signal: controller.signal,
+      }
+    )
+    clearTimeout(timeout)
+
+    if (!response.ok) {
+      console.warn(`Wikidata SPARQL HTTP ${response.status}`)
+      return populationMap
+    }
+
+    const data = await response.json()
+    const bindings = data?.results?.bindings || []
+
+    for (const binding of bindings) {
+      const ags = binding.ags?.value
+      const pop = parseInt(binding.population?.value)
+      if (ags && !isNaN(pop) && pop > 0) {
+        populationMap.set(ags, pop)
+      }
+    }
+
+    console.log(`Wikidata: ${populationMap.size} Einwohnerzahlen für AGS ^${ags5} geladen`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`Wikidata SPARQL fehlgeschlagen (nicht kritisch): ${msg}`)
+  }
+
+  return populationMap
+}
+
 // ─── Edge Function Handler ───────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -102,15 +158,18 @@ Deno.serve(async (req) => {
 
     console.log(`Gemeinden-Import für "${district.name}" – AGS-Prefix: ${ags5}`)
 
-    // Overpass-Abfrage: Alle admin_level=8 Relationen deren AGS mit dem Kreis-AGS beginnt
-    // Das ist die zuverlässigste Methode – liefert exakt die echten Gemeinden
-    const query = `[out:json][timeout:60];
+    // Parallel: Overpass-Abfrage + Wikidata-Einwohnerzahlen
+    const [elements, wikidataPopulation] = await Promise.all([
+      // 1) Overpass: Alle admin_level=8 Relationen deren AGS mit dem Kreis-AGS beginnt
+      queryOverpass(`[out:json][timeout:60];
 relation["de:amtlicher_gemeindeschluessel"~"^${ags5}"]
   ["admin_level"="8"]
   ["boundary"="administrative"];
-out center tags;`
+out center tags;`),
+      // 2) Wikidata: Einwohnerzahlen für alle Gemeinden im Landkreis
+      fetchWikidataPopulation(ags5),
+    ])
 
-    const elements = await queryOverpass(query)
     console.log(`${elements.length} Gemeinden aus OSM gefunden (AGS ^${ags5})`)
 
     // Bestehende Gemeinden laden für Duplikat-Check
@@ -137,6 +196,7 @@ out center tags;`
 
     const newMunicipalities: MunicipalityInsert[] = []
     const seenNames = new Set<string>()
+    let wikidataUsed = 0
 
     for (const el of elements) {
       const coords = extractCoords(el)
@@ -151,11 +211,18 @@ out center tags;`
       if (existingNames.has(nameLower) || seenNames.has(nameLower)) continue
       seenNames.add(nameLower)
 
-      // Population aus OSM (oft vorhanden bei Gemeinde-Relationen)
-      const population = el.tags?.population ? parseInt(el.tags.population) : 0
+      // Population: OSM → Wikidata → 0
+      let population = el.tags?.population ? parseInt(el.tags.population) : 0
+      if (isNaN(population)) population = 0
+
+      // Falls OSM keine Einwohnerzahl hat → Wikidata-Lookup per AGS-Code
+      const gemeindeAgs = el.tags?.['de:amtlicher_gemeindeschluessel']
+      if (population === 0 && gemeindeAgs && wikidataPopulation.has(gemeindeAgs)) {
+        population = wikidataPopulation.get(gemeindeAgs)!
+        wikidataUsed++
+      }
 
       // Fläche schätzen basierend auf admin_level info
-      // Besser: könnte man aus der Relation berechnen, aber center+tags reicht
       const placeType = el.tags?.place || el.tags?.['de:place'] || 'village'
       let estimatedArea = 20
       if (placeType === 'city') estimatedArea = 100
@@ -164,7 +231,7 @@ out center tags;`
       newMunicipalities.push({
         district_id: districtId,
         name,
-        population: isNaN(population) ? 0 : population,
+        population,
         area_km2: estimatedArea,
         latitude: coords.lat,
         longitude: coords.lon,
@@ -173,7 +240,7 @@ out center tags;`
       })
     }
 
-    console.log(`${newMunicipalities.length} neue Gemeinden nach Filterung`)
+    console.log(`${newMunicipalities.length} neue Gemeinden nach Filterung (${wikidataUsed} mit Wikidata-Einwohnerzahlen)`)
 
     // In DB einfügen (Batches von 50)
     let insertedCount = 0
@@ -200,6 +267,7 @@ out center tags;`
         imported: insertedCount,
         existing: existingMunicipalities?.length ?? 0,
         total_found: elements.length,
+        wikidata_population: wikidataPopulation.size,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

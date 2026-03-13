@@ -778,43 +778,6 @@ export default function OnboardingPage() {
                 <SummaryCard icon={<BookOpen className="h-5 w-5" />} value={progress.handbuecher.count} label="Dokumente" />
               </div>
 
-              {/* Guided Next Steps */}
-              <div className="mb-6 rounded-2xl border border-primary-100 bg-primary-50/30 p-5">
-                <h2 className="mb-3 text-sm font-bold text-text-primary">Empfohlene nächste Schritte</h2>
-                <div className="space-y-2">
-                  <NextStepItem
-                    number={1}
-                    title="Risikoanalyse prüfen"
-                    description="KI hat Risiken für Ihren Landkreis analysiert. Prüfen Sie die Ergebnisse."
-                    onClick={() => navigate('/pro/risikoanalyse')}
-                  />
-                  <NextStepItem
-                    number={2}
-                    title="Krisenszenarien anpassen"
-                    description={`${progress.kiHandbuecher.count} Szenarien haben KI-Handbücher. Passen Sie diese an Ihre Gegebenheiten an.`}
-                    onClick={() => navigate('/pro/szenarien')}
-                  />
-                  <NextStepItem
-                    number={3}
-                    title="Kontaktverzeichnis aufbauen"
-                    description="Tragen Sie Einsatzleiter, Behörden und Hilfsorganisationen ein."
-                    onClick={() => navigate('/pro/kontakte')}
-                  />
-                  <NextStepItem
-                    number={4}
-                    title="Inventar aktualisieren"
-                    description="Gleichen Sie Ihre tatsächlichen Bestände mit den KI-Empfehlungen ab."
-                    onClick={() => navigate('/pro/inventar')}
-                  />
-                </div>
-              </div>
-
-              {/* Hinweis: Automatische Updates */}
-              <div className="mb-6 rounded-xl border border-border bg-surface-secondary px-4 py-3 text-center text-xs text-text-muted">
-                <Sparkles className="mr-1 inline h-3.5 w-3.5 text-primary-600" />
-                Die KI-Risikoanalyse aktualisiert sich automatisch 2x täglich (06:00 &amp; 14:00 Uhr).
-              </div>
-
               <button
                 onClick={() => navigate('/pro')}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary-600 px-6 py-4 text-base font-semibold text-white transition-colors hover:bg-primary-700"
@@ -891,30 +854,3 @@ function SummaryCard({ icon, value, label, error }: { icon: React.ReactNode; val
   )
 }
 
-function NextStepItem({
-  number,
-  title,
-  description,
-  onClick,
-}: {
-  number: number
-  title: string
-  description: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 text-left transition-all hover:border-primary-200 hover:shadow-sm"
-    >
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary-100 text-xs font-bold text-primary-700">
-        {number}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-text-primary">{title}</p>
-        <p className="text-xs text-text-muted line-clamp-1">{description}</p>
-      </div>
-      <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" />
-    </button>
-  )
-}
